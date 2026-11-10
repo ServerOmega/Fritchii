@@ -73,6 +73,11 @@ private:
     const Device& device;
     Scheduler& scheduler;
     MemoryAllocator& memory_allocator;
+#ifdef EGLANTINE_NGX
+    void* ngx_handle{};
+    void* ngx_params{};
+    int ngx_flags = -1;
+#endif
     void* set_options{}; ///< slDLSSSetOptions
     VkExtent2D render_extent{};
     VkExtent2D upscale_extent{};

@@ -588,10 +588,26 @@ endif()
 # setting is on. Only Streamline's MIT-licensed headers are compiled in and nothing of NVIDIA's is
 # linked or copied: sl.interposer.dll and the DLSS plugins are loaded at run time from the user's PC.
 cmake_dependent_option(ENABLE_NVIDIA_DLSS "Enable NVIDIA DLSS through NVIDIA Streamline" ON
-                       "MSVC AND ARCHITECTURE_x86_64" OFF)
+                       "ARCHITECTURE_x86_64 AND (MSVC OR LINUX)" OFF)
 set(EGLANTINE_STREAMLINE_SDK "" CACHE PATH
     "NVIDIA Streamline SDK directory for its headers (empty: download them)")
-if (ENABLE_NVIDIA_DLSS)
+set(EGLANTINE_NGX_SDK "" CACHE PATH "Official NVIDIA DLSS SDK root (Linux headers only)")
+if (ENABLE_NVIDIA_DLSS AND LINUX)
+    if (NOT EXISTS "${EGLANTINE_NGX_SDK}/include/nvsdk_ngx_vk.h")
+        message(FATAL_ERROR "Linux DLSS needs -DEGLANTINE_NGX_SDK=<NVIDIA/DLSS SDK root>")
+    endif()
+    target_sources(video_core PRIVATE
+        renderer_vulkan/vk_ngx_dlss.cpp
+        renderer_vulkan/vk_streamline_dlss.h
+        vulkan_common/ngx.cpp
+        vulkan_common/ngx_api.h
+        vulkan_common/streamline.h)
+    target_include_directories(video_core SYSTEM PRIVATE "${EGLANTINE_NGX_SDK}/include")
+    target_link_libraries(video_core PRIVATE ${CMAKE_DL_LIBS})
+    # Retain the existing renderer interface/guards; the implementation is native NGX, not SL.
+    target_compile_definitions(video_core PUBLIC EGLANTINE_STREAMLINE EGLANTINE_NGX)
+    message(STATUS "Linux DLSS: optional runtime NGX SDK loader; no NVIDIA binaries linked/bundled")
+elseif (ENABLE_NVIDIA_DLSS)
     if (EGLANTINE_STREAMLINE_SDK)
         set(STREAMLINE_INCLUDE_DIR "${EGLANTINE_STREAMLINE_SDK}/include")
     else()

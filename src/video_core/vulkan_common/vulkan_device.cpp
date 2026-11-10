@@ -794,6 +794,13 @@ Device::Device(VkInstance instance_, vk::PhysicalDevice physical_, VkSurfaceKHR 
                                VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME);
     }
 #ifdef EGLANTINE_STREAMLINE
+#ifdef EGLANTINE_NGX
+    if (streamline_extensions && !features.buffer_device_address.bufferDeviceAddress) {
+        LOG_WARNING(Render_Vulkan, "Linux NGX requires bufferDeviceAddress; using FSR 3.1");
+        streamline_extensions = false;
+        Streamline::Stop();
+    }
+#endif
     // NVIDIA's DLSS needs buffer device addresses: keep the feature enabled for
     // it, but leave Eglantine's own buffers as they are without descriptor buffers.
     const bool dlss_wants_device_address =
@@ -1260,9 +1267,12 @@ bool Device::GetSuitability(bool requires_swapchain) {
 #ifdef EGLANTINE_STREAMLINE
     // The extensions NVIDIA's DLSS asks for, where the device has them all.
     if (Streamline::WantsDevice()) {
+#ifdef EGLANTINE_NGX
+        if (!Streamline::PrepareDeviceExtensions(instance, physical)) Streamline::Stop();
+#endif
         const std::vector<std::string> wanted = Streamline::DeviceExtensions();
         // Streamline may ask for no extensions at all.
-        const bool all = std::ranges::all_of(
+        const bool all = Streamline::WantsDevice() && std::ranges::all_of(
             wanted, [&](const std::string& name) { return supported_extensions.contains(name); });
         std::string names;
         for (const std::string& name : wanted) {

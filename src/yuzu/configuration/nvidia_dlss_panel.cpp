@@ -1,3 +1,39 @@
+#ifdef EGLANTINE_NGX
+#include <QDesktopServices>
+#include <QLabel>
+#include <QPushButton>
+#include <QUrl>
+#include <QVBoxLayout>
+#include "video_core/vulkan_common/streamline.h"
+#include "yuzu/configuration/nvidia_dlss_panel.h"
+NvidiaDlssPanel::NvidiaDlssPanel(QWidget* parent) : QWidget(parent) {
+    auto* layout = new QVBoxLayout(this);
+    status_label = new QLabel(this); status_label->setWordWrap(true);
+    layout->addWidget(status_label);
+    folder_button = new QPushButton(tr("Open Linux NGX Folder"), this);
+    layout->addWidget(folder_button);
+    connect(folder_button, &QPushButton::clicked, this, [] {
+        auto path = Vulkan::Streamline::UserFolder();
+        std::error_code ec; std::filesystem::create_directories(path, ec);
+        QDesktopServices::openUrl(QUrl::fromLocalFile(QString::fromStdString(path.string())));
+    });
+    Refresh();
+}
+void NvidiaDlssPanel::Refresh() {
+    const auto files = Vulkan::Streamline::FindDlssFiles();
+    status_label->setText(tr("Experimental Linux NGX DLSS. Restart the game after enabling.\n"
+        "SDK loader: %1\nDLSS model: %2\n"
+        "Install NVIDIA's SDK loader (libnvsdk_ngx.so) and Linux DLSS model in %3. "
+        "Driver libnvidia-ngx.so alone is not the public SDK loader. "
+        "If initialization fails, FSR 3.1 is used; check eden_log.txt. "
+        "Quality mode follows the game's input/output ratio; Graphics > DLSS preset picks the model (K by default; EDEN_NX2_DLSS_PRESET overrides).")
+        .arg(files.interposer.empty() ? tr("not installed") : QString::fromStdString(files.interposer.string()))
+        .arg(files.model.empty() ? tr("driver/default search (not verified)") : QString::fromStdString(files.model.string()))
+        .arg(QString::fromStdString(files.folder.string())));
+}
+void NvidiaDlssPanel::showEvent(QShowEvent*) { Refresh(); }
+void NvidiaDlssPanel::Download() {} // No Windows DLL downloads or license acceptance on Linux.
+#else
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -559,3 +595,5 @@ void NvidiaDlssPanel::Download() {
 }
 
 #endif
+
+#endif // EGLANTINE_NGX

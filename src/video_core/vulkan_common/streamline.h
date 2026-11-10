@@ -51,6 +51,10 @@ bool Start();
 
 /// Hands the renderer's device to Streamline and routes the swapchain calls through it, as
 /// Streamline's manual hooking needs. Stops Streamline and returns false when DLSS can't run.
+#ifdef EGLANTINE_NGX
+/// Discover DLSS-specific device requirements before vkCreateDevice.
+bool PrepareDeviceExtensions(VkInstance instance, VkPhysicalDevice physical);
+#endif
 bool AttachDevice(VkInstance instance, VkPhysicalDevice physical, VkDevice device,
                   u32 graphics_family, vk::DeviceDispatch& dld);
 

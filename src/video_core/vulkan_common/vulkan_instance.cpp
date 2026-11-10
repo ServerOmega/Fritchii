@@ -100,6 +100,12 @@ namespace {
         if (available && !listed) {
             extensions.push_back(name.c_str());
         }
+#ifdef EGLANTINE_NGX
+        if (!available) {
+            LOG_WARNING(Render_Vulkan, "Linux NGX instance extension {} unavailable; using FSR 3.1", name);
+            Streamline::Stop();
+        }
+#endif
     }
 #endif
     return extensions;

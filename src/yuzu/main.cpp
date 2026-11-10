@@ -33,6 +33,9 @@
 
 #include "main_window.h"
 #include "fritchii/fritchii_ui.h"
+#ifdef EGLANTINE_NGX
+#include "video_core/vulkan_common/streamline.h"
+#endif
 #ifdef ENABLE_UPDATE_CHECKER
 #include "updater/update_dialog.h"
 #endif
@@ -366,6 +369,12 @@ int main(int argc, char* argv[]) {
     setlocale(LC_ALL, "C");
 
     MainWindow main_window{has_broken_vulkan};
+#ifdef EGLANTINE_NGX
+    if (std::getenv("EDEN_NGX_PROBE")) {
+        Vulkan::Streamline::Start();
+        Vulkan::Streamline::Stop();
+    }
+#endif
     // After settings have been loaded by GMainWindow, apply the filter
     main_window.show();
 
