@@ -400,7 +400,7 @@ std::vector<std::string> InstanceExtensions() {
     return state.started ? state.instance_extensions : std::vector<std::string>{};
 }
 
-std::vector<std::string> DeviceExtensions() {
+std::vector<std::string> DeviceExtensions(VkInstance, VkPhysicalDevice) {
     const State& state = GetState();
     return state.started ? state.device_extensions : std::vector<std::string>{};
 }

@@ -230,8 +230,8 @@ void ConfigureGraphics::Setup(const ConfigurationShared::Builder& builder) {
             continue;
         }
 #endif
-#ifndef EGLANTINE_STREAMLINE
-        // Only builds with NVIDIA Streamline (Windows) can use it.
+#ifndef EGLANTINE_NVIDIA_DLSS
+        // Only builds with an NVIDIA DLSS backend can use it.
         if (setting->Id() == Settings::values.nvidia_dlss.Id() ||
             setting->Id() == Settings::values.nvidia_dlss_preset.Id()) {
             continue;

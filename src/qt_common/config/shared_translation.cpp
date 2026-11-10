@@ -158,6 +158,7 @@ std::unique_ptr<TranslationMap> InitializeTranslations(QObject* parent) {
     INSERT(Settings, nvidia_dlss_preset, tr("DLSS preset:"),
            tr("The DLSS model. K is the tested default; L and M are NVIDIA's newer models, J the "
               "older one. Default lets NVIDIA choose per quality mode."));
+#ifdef _WIN32
     INSERT(Settings, nvidia_dlss, tr("Use NVIDIA DLSS in place of a game's DLSS (experimental)"),
            tr("Uses NVIDIA DLSS on GeForce RTX cards in place of a Switch 2 game's own DLSS, "
               "instead of AMD FSR 3.1.\nNeeds NVIDIA's Streamline loader, and NVIDIA DLSS unless "
@@ -166,6 +167,18 @@ std::unique_ptr<TranslationMap> InitializeTranslations(QObject* parent) {
               "EDEN_NX2_DLSS_REPLACEMENT=dlss. Without that override, its spatial workaround "
               "remains active.\nIn The Legend of Zelda: Ocarina of Time it replaces the game's "
               "upscaler at 1x resolution scale.\nTakes effect when a game starts."));
+#else
+    INSERT(Settings, nvidia_dlss, tr("Use NVIDIA DLSS in place of a game's DLSS (experimental)"),
+           tr("Uses NVIDIA DLSS on GeForce RTX cards in place of a Switch 2 game's own DLSS, "
+              "instead of AMD FSR 3.1.\nNeeds NVIDIA's libnvidia-ngx-dlss.so, from NVIDIA's DLSS "
+              "SDK. Lichii does not ship NVIDIA's files.\nPut the library in $EDEN_NGX_DIR, in "
+              "ngx/ next to the executable, or in $XDG_DATA_HOME/eden/ngx (this is "
+              "~/.local/share/eden/ngx when XDG_DATA_HOME is unset). A versioned filename such as "
+              "libnvidia-ngx-dlss.so.310.9.16 is accepted.\nFire Emblem: Fortune's Weave also needs "
+              "EDEN_NX2_DLSS_REPLACEMENT=dlss. Without that override, its spatial workaround "
+              "remains active.\nIn The Legend of Zelda: Ocarina of Time it replaces the game's "
+              "upscaler at 1x resolution scale.\nTakes effect when a game starts."));
+#endif
     INSERT(Settings, anti_aliasing, tr("Anti-Aliasing Method:"),
            tr("The anti-aliasing method to use.\nSMAA offers the best quality.\nFXAA "
               "can produce a more stable picture in lower resolutions."));
