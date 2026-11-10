@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Fritchii
+GenericName=Switch Emulator
+Comment=Experimental Nintendo Switch and Switch 2 emulator
+Icon=fritchii
+TryExec=lichii
+Exec=lichii %f
+Categories=Game;Emulator;Qt;
+MimeType=application/x-nx-nro;application/x-nx-nso;application/x-nx-nsp;application/x-nx-xci;
+Keywords=Nintendo;Switch;Fritchii;
+StartupWMClass=fritchii

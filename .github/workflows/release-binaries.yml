@@ -444,9 +444,16 @@ jobs:
           curl -fsSL -o "$tools/linuxdeploy-plugin-qt-$arch.AppImage" \
           https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-$arch.AppImage
           chmod +x "$tools"/*.AppImage
-          # The desktop file names its icon io.github.zortos293.lichii.
-          icon="$RUNNER_TEMP/io.github.zortos293.lichii.png"
-          cp dist/lichii.png "$icon"
+          # Use Fritchii desktop file and icon if available, otherwise fallback to Lichii
+          if [ -f dist/fritchii.desktop ]; then
+            desktop_file="dist/fritchii.desktop"
+            icon="$RUNNER_TEMP/fritchii.png"
+            cp dist/fritchii.png "$icon"
+          else
+            desktop_file="dist/io.github.zortos293.lichii.desktop"
+            icon="$RUNNER_TEMP/io.github.zortos293.lichii.png"
+            cp dist/lichii.png "$icon"
+          fi
           export APPIMAGE_EXTRACT_AND_RUN=1
           export QMAKE="$QT_ROOT_DIR/bin/qmake"
           # Include Wayland platform plugins and their graphics/shell integrations.
@@ -501,7 +508,7 @@ jobs:
           "$tools/linuxdeploy-$arch.AppImage" --appdir AppDir \
             --executable build/release/bin/lichii \
             --executable build/release/bin/eden-cli \
-            --desktop-file dist/io.github.zortos293.lichii.desktop \
+            --desktop-file "$desktop_file" \
             --icon-file "$icon" \
             --custom-apprun "$RUNNER_TEMP/AppRun" \
             --plugin qt \
@@ -684,7 +691,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir dist
+          mkdir -p release_assets
           # Asset names drop the commit sha: the release tag already identifies the build, and
           # stable names let the notes table link to them.
           strip_sha() { sed "s/-${GITHUB_SHA}//" <<< "$1"; }
@@ -693,17 +700,17 @@ jobs:
             if compgen -G "$artifact*.AppImage" > /dev/null; then
               # Linux: ship the AppImage and the tar.gz as they are.
               for file in "$artifact"*.AppImage "$artifact"*.tar.gz; do
-                cp "$file" "dist/$(strip_sha "$(basename "$file")")"
+                cp "$file" "release_assets/$(strip_sha "$(basename "$file")")"
               done
             elif compgen -G "$artifact*.zip" > /dev/null; then
               for file in "$artifact"*.zip "$artifact"*.dmg; do
-                [[ -e "$file" ]] && cp "$file" "dist/$(strip_sha "$(basename "$file")")"
+                [[ -e "$file" ]] && cp "$file" "release_assets/$(strip_sha "$(basename "$file")")"
               done
             else
-              (cd "$artifact" && zip -qr "${GITHUB_WORKSPACE}/dist/$(strip_sha "$name").zip" .)
+              (cd "$artifact" && zip -qr "${GITHUB_WORKSPACE}/release_assets/$(strip_sha "$name").zip" .)
             fi
           done
-          ls -la dist
+          ls -la release_assets
 
       - name: Create release
         shell: bash
@@ -749,7 +756,7 @@ jobs:
           The PGO builds are the same programs compiled with profile-guided optimization (clang plus Eglantine's profile); prefer them when your CPU supports it.
           EOF
 
-          gh release create "${tag}" dist/* \
+          gh release create "${tag}" release_assets/* \
             --repo "${GITHUB_REPOSITORY}" \
             --verify-tag \
             --prerelease \

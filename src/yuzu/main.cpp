@@ -329,7 +329,11 @@ int main(int argc, char* argv[]) {
 
     // Fix the Wayland appId. This needs to match the name of the .desktop file without the .desktop
     // suffix.
-    QGuiApplication::setDesktopFileName(QStringLiteral("io.github.zortos293.lichii"));
+    if (FritchiiUi::Enabled()) {
+        QGuiApplication::setDesktopFileName(QStringLiteral("fritchii"));
+    } else {
+        QGuiApplication::setDesktopFileName(QStringLiteral("io.github.zortos293.lichii"));
+    }
 #endif
 
     // Fritchii: Windows' own scale (125%, 150%, 175%), as large as the screen leaves the windows
