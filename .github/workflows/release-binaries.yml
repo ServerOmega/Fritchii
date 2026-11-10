@@ -474,6 +474,10 @@ jobs:
           export QML2_IMPORT_PATH="${HERE}/usr/qml:${QML2_IMPORT_PATH:-}"
           export QT_QPA_PLATFORM_PLUGIN_PATH="${HERE}/usr/plugins/platforms"
 
+          if [ -z "${EDEN_NX2_PRECOMPILE:-}" ] && [ ! -e /proc/driver/nvidia/version ]; then
+              export EDEN_NX2_PRECOMPILE=2
+          fi
+
           if [ -n "${WAYLAND_DISPLAY:-}" ]; then
               export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland;xcb}"
           fi
@@ -481,6 +485,9 @@ jobs:
           exec "${HERE}/usr/bin/lichii" "$@"
           EOF
           chmod +x "$RUNNER_TEMP/AppRun"
+
+          mkdir -p AppDir/usr/bin
+          cp build/release/bin/nx2_switches.txt AppDir/usr/bin/
 
           # Deploy Wayland graphics and shell integration plugins for Wayland / OpenGL
           for wayland_dir in "$QT_ROOT_DIR"/plugins/wayland*; do
