@@ -450,18 +450,53 @@ jobs:
           export APPIMAGE_EXTRACT_AND_RUN=1
           export QMAKE="$QT_ROOT_DIR/bin/qmake"
           # Include Wayland platform plugins and their graphics/shell integrations.
-          export EXTRA_QT_MODULES=waylandcompositor
-          export EXTRA_PLATFORM_PLUGINS='libqwayland-egl.so;libqwayland-generic.so'
+          export EXTRA_QT_MODULES=waylandclient
+          wayland_plugins=""
+          for p in libqwayland-egl.so libqwayland-generic.so libqwayland.so; do
+            if [ -f "$QT_ROOT_DIR/plugins/platforms/$p" ]; then
+              wayland_plugins="${wayland_plugins:+$wayland_plugins;}$p"
+            fi
+          done
+          export EXTRA_PLATFORM_PLUGINS="${wayland_plugins:-libqwayland-egl.so;libqwayland-generic.so}"
           # Embedded in the AppImage metadata; matches the release tag (build-N) plus the commit.
+          export LINUXDEPLOY_OUTPUT_VERSION="build-${GITHUB_RUN_NUMBER}-${GITHUB_SHA::7}"
           export LDAI_VERSION="build-${GITHUB_RUN_NUMBER}-${GITHUB_SHA::7}"
           export LDAI_OUTPUT="lichii-${GITHUB_SHA}-${{ matrix.platform }}.AppImage"
           export OUTPUT="$LDAI_OUTPUT"
           export ARCH="$arch"
+
+          cat << 'EOF' > "$RUNNER_TEMP/AppRun"
+          #!/bin/bash
+          HERE="$(dirname "$(readlink -f "${0}")")"
+          export PATH="${HERE}/usr/bin:${PATH}"
+          export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH:-}"
+          export QT_PLUGIN_PATH="${HERE}/usr/plugins:${QT_PLUGIN_PATH:-}"
+          export QML2_IMPORT_PATH="${HERE}/usr/qml:${QML2_IMPORT_PATH:-}"
+          export QT_QPA_PLATFORM_PLUGIN_PATH="${HERE}/usr/plugins/platforms"
+
+          if [ -n "${WAYLAND_DISPLAY:-}" ]; then
+              export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland;xcb}"
+          fi
+
+          exec "${HERE}/usr/bin/lichii" "$@"
+          EOF
+          chmod +x "$RUNNER_TEMP/AppRun"
+
+          # Deploy Wayland graphics and shell integration plugins for Wayland / OpenGL
+          for wayland_dir in "$QT_ROOT_DIR"/plugins/wayland*; do
+            if [ -d "$wayland_dir" ]; then
+              dest_dir="AppDir/usr/plugins/$(basename "$wayland_dir")"
+              mkdir -p "$dest_dir"
+              cp -a "$wayland_dir"/. "$dest_dir/"
+            fi
+          done
+
           "$tools/linuxdeploy-$arch.AppImage" --appdir AppDir \
             --executable build/release/bin/lichii \
             --executable build/release/bin/eden-cli \
             --desktop-file dist/io.github.zortos293.lichii.desktop \
             --icon-file "$icon" \
+            --custom-apprun "$RUNNER_TEMP/AppRun" \
             --plugin qt \
             --output appimage
           test -s "$LDAI_OUTPUT"
