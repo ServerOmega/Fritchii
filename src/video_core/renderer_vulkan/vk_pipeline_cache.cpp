@@ -1091,6 +1091,9 @@ void MergeCompatiblePipelineCaches(const std::filesystem::path& base_dir,
                          : VideoCommon::PipelineMergeLog{};
     bool log_changed = false;
     std::optional<VideoCommon::PipelineKeySet> own_keys;
+#ifdef Status
+#undef Status
+#endif
     using Status = VideoCommon::PipelineCacheMergeResult::Status;
     for (const Candidate& candidate : candidates) {
         const auto stamp = VideoCommon::StampPipelineCacheFile(candidate.cache);

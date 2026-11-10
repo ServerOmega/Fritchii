@@ -22,6 +22,8 @@
 #include "core/file_sys/patch_manager.h"
 #include "core/file_sys/romfs.h"
 #include "core/file_sys/romfs_factory.h"
+#include <optional>
+
 #include "core/hle/kernel/k_page_table.h"
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/service/filesystem/filesystem.h"
@@ -458,6 +460,17 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
     // Define an nce patch context for each potential module.
     PatchCollection patch_ctx{is_application};
 
+    // Fritchii (Linux ARM64 NCE): the layout pass must see the same code the load pass maps, so it
+    // applies the same NSO patches (user IPS mods and built-in patches like "Dynamic FPS by Dark").
+    // Before, the NCE patcher scanned the unpatched module, so instructions those patches add
+    // (`mrs xN, cntpct_el0`, `svc #0xf3`) ran natively: CNTPCT_EL0 is not readable at EL0 on
+    // Linux (SIGILL) and an unpatched SVC is a host syscall.
+    std::optional<FileSys::PatchManager> layout_pm;
+    if (patch_ctx.GetPatchers() != nullptr) {
+        layout_pm.emplace(metadata.GetTitleID(), system.GetFileSystemController(),
+                          system.GetContentProvider());
+    }
+
     // Use the NSO module loader to figure out the code layout
     for (size_t i = 0; i < static_modules.size(); i++) {
         const auto& module = static_modules[i];
@@ -468,7 +481,7 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
 
         const bool should_pass_arguments = std::strcmp(module, "rtld") == 0;
         const auto tentative_next_load_addr = AppLoader_NSO::LoadModule(
-            process, system, *module_file, code_size, should_pass_arguments, false, {},
+            process, system, *module_file, code_size, should_pass_arguments, false, layout_pm,
             patch_ctx.GetPatchers(), patch_ctx.GetLastIndex());
         if (!tentative_next_load_addr) {
             return {ResultStatus::ErrorLoadingNSO, {}};

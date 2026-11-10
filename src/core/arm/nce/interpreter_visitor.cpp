@@ -5,6 +5,7 @@
 // SPDX-FileCopyrightText: Copyright 2023 merryhime <https://mary.rs>
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <cstring>
 #include <numeric>
 #include "core/arm/nce/interpreter_visitor.h"
 
@@ -759,6 +760,155 @@ bool InterpreterVisitor::LDR_reg_fpsimd(Imm<2> size, Imm<1> opc_1, Reg Rm, Imm<3
         return false;
     }
     return this->SIMDOffset(scale, shift, opc_0, Rm, option, Rn, Vt);
+}
+
+namespace {
+// Byte e*ebytes.. of a vector register (little-endian lanes).
+void CopyVectorElement(const u128& value, size_t index, size_t ebytes, u8* out) {
+    u8 bytes[16];
+    std::memcpy(bytes, value.data(), sizeof(bytes));
+    std::memcpy(out, bytes + index * ebytes, ebytes);
+}
+} // namespace
+
+bool InterpreterVisitor::StoreMultiple(bool Q, Imm<4> opcode, Imm<2> size, Reg Rn, Vec Vt,
+                                       bool wback, Reg Rm) {
+    size_t rpt = 0;
+    size_t selem = 0;
+    switch (opcode.ZeroExtend()) {
+    case 0b0000: rpt = 1; selem = 4; break;
+    case 0b0010: rpt = 4; selem = 1; break;
+    case 0b0100: rpt = 1; selem = 3; break;
+    case 0b0110: rpt = 3; selem = 1; break;
+    case 0b0111: rpt = 1; selem = 1; break;
+    case 0b1000: rpt = 1; selem = 2; break;
+    case 0b1010: rpt = 2; selem = 1; break;
+    default: return false;
+    }
+    if (size.ZeroExtend() == 0b11 && !Q && selem != 1) {
+        return false;
+    }
+    const size_t esize = size_t{8} << size.ZeroExtend();
+    const size_t ebytes = esize / 8;
+    const size_t elements = (Q ? 128 : 64) / esize;
+    u8 buffer[64];
+    size_t offset = 0;
+    for (size_t r = 0; r < rpt; ++r) {
+        for (size_t e = 0; e < elements; ++e) {
+            size_t tt = (static_cast<size_t>(Vt) + r) % 32;
+            for (size_t s = 0; s < selem; ++s) {
+                CopyVectorElement(this->GetVec(static_cast<Vec>(tt)), e, ebytes, buffer + offset);
+                offset += ebytes;
+                tt = (tt + 1) % 32;
+            }
+        }
+    }
+    const u64 address = (Rn == Reg::SP) ? this->GetSp() : this->GetReg(Rn);
+    m_memory.WriteBlock(address, buffer, offset);
+    if (wback) {
+        const u64 step = Rm == Reg::R31 ? offset : this->GetReg(Rm);
+        if (Rn == Reg::SP) {
+            this->SetSp(address + step);
+        } else {
+            this->SetReg(Rn, address + step);
+        }
+    }
+    return true;
+}
+
+bool InterpreterVisitor::StoreSingle(size_t selem, bool Q, Imm<2> upper_opcode, bool S,
+                                     Imm<2> size, Reg Rn, Vec Vt, bool wback, Reg Rm) {
+    size_t scale = upper_opcode.ZeroExtend<size_t>();
+    const size_t q = Q ? 1 : 0;
+    const size_t s_bit = S ? 1 : 0;
+    const size_t sz = size.ZeroExtend<size_t>();
+    size_t index = 0;
+    switch (scale) {
+    case 0:
+        index = (q << 3) | (s_bit << 2) | sz;
+        break;
+    case 1:
+        if ((sz & 1) != 0) {
+            return false;
+        }
+        index = (q << 2) | (s_bit << 1) | (sz >> 1);
+        break;
+    case 2:
+        if ((sz & 2) != 0) {
+            return false;
+        }
+        if ((sz & 1) == 0) {
+            index = (q << 1) | s_bit;
+        } else {
+            if (S) {
+                return false;
+            }
+            index = q;
+            scale = 3;
+        }
+        break;
+    default:
+        return false;
+    }
+    const size_t ebytes = size_t{1} << scale;
+    u8 buffer[32];
+    size_t offset = 0;
+    size_t tt = static_cast<size_t>(Vt);
+    for (size_t s = 0; s < selem; ++s) {
+        CopyVectorElement(this->GetVec(static_cast<Vec>(tt)), index, ebytes, buffer + offset);
+        offset += ebytes;
+        tt = (tt + 1) % 32;
+    }
+    const u64 address = (Rn == Reg::SP) ? this->GetSp() : this->GetReg(Rn);
+    m_memory.WriteBlock(address, buffer, offset);
+    if (wback) {
+        const u64 step = Rm == Reg::R31 ? offset : this->GetReg(Rm);
+        if (Rn == Reg::SP) {
+            this->SetSp(address + step);
+        } else {
+            this->SetReg(Rn, address + step);
+        }
+    }
+    return true;
+}
+
+bool InterpreterVisitor::STx_mult_1(bool Q, Imm<4> opcode, Imm<2> size, Reg Rn, Vec Vt) {
+    return StoreMultiple(Q, opcode, size, Rn, Vt, false, Reg::R31);
+}
+bool InterpreterVisitor::STx_mult_2(bool Q, Reg Rm, Imm<4> opcode, Imm<2> size, Reg Rn, Vec Vt) {
+    return StoreMultiple(Q, opcode, size, Rn, Vt, true, Rm);
+}
+bool InterpreterVisitor::ST1_sngl_1(bool Q, Imm<2> upper_opcode, bool S, Imm<2> size, Reg Rn,
+                                    Vec Vt) {
+    return StoreSingle(1, Q, upper_opcode, S, size, Rn, Vt, false, Reg::R31);
+}
+bool InterpreterVisitor::ST1_sngl_2(bool Q, Reg Rm, Imm<2> upper_opcode, bool S, Imm<2> size,
+                                    Reg Rn, Vec Vt) {
+    return StoreSingle(1, Q, upper_opcode, S, size, Rn, Vt, true, Rm);
+}
+bool InterpreterVisitor::ST2_sngl_1(bool Q, Imm<2> upper_opcode, bool S, Imm<2> size, Reg Rn,
+                                    Vec Vt) {
+    return StoreSingle(2, Q, upper_opcode, S, size, Rn, Vt, false, Reg::R31);
+}
+bool InterpreterVisitor::ST2_sngl_2(bool Q, Reg Rm, Imm<2> upper_opcode, bool S, Imm<2> size,
+                                    Reg Rn, Vec Vt) {
+    return StoreSingle(2, Q, upper_opcode, S, size, Rn, Vt, true, Rm);
+}
+bool InterpreterVisitor::ST3_sngl_1(bool Q, Imm<2> upper_opcode, bool S, Imm<2> size, Reg Rn,
+                                    Vec Vt) {
+    return StoreSingle(3, Q, upper_opcode, S, size, Rn, Vt, false, Reg::R31);
+}
+bool InterpreterVisitor::ST3_sngl_2(bool Q, Reg Rm, Imm<2> upper_opcode, bool S, Imm<2> size,
+                                    Reg Rn, Vec Vt) {
+    return StoreSingle(3, Q, upper_opcode, S, size, Rn, Vt, true, Rm);
+}
+bool InterpreterVisitor::ST4_sngl_1(bool Q, Imm<2> upper_opcode, bool S, Imm<2> size, Reg Rn,
+                                    Vec Vt) {
+    return StoreSingle(4, Q, upper_opcode, S, size, Rn, Vt, false, Reg::R31);
+}
+bool InterpreterVisitor::ST4_sngl_2(bool Q, Reg Rm, Imm<2> upper_opcode, bool S, Imm<2> size,
+                                    Reg Rn, Vec Vt) {
+    return StoreSingle(4, Q, upper_opcode, S, size, Rn, Vt, true, Rm);
 }
 
 std::optional<u64> MatchAndExecuteOneInstruction(Core::Memory::Memory& memory, mcontext_t* context, fpsimd_context* fpsimd_context) {

@@ -442,6 +442,17 @@ u64 WallClock::CPUTickToGuestCNTPCT(u64 cpu_tick) const {
     return MultiplyAndDivide64(cpu_tick, GetGuestCNTFRQ(), CPUTickFreq);
 }
 
+#ifndef ARCHITECTURE_x86_64
+// Non-x86 hosts (ARM64 Linux): no SMT on common ARM cores, so cores == hardware threads.
+std::optional<int> GetProcessorCount() {
+    const unsigned int count = std::thread::hardware_concurrency();
+    if (count == 0) {
+        return std::nullopt;
+    }
+    return static_cast<int>(count);
+}
+#endif
+
 // Wall clock MUST be initialized AFTER g_cpu_caps
 // C++ only guarantees ctor init in the order they appear in TU
 WallClock g_wall_clock = [] {

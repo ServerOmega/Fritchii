@@ -97,6 +97,26 @@ public:
     bool LDR_reg_fpsimd(Imm<2> size, Imm<1> opc_1, Reg Rm, Imm<3> option, bool S, Reg Rn,
                         Vec Vt) override;
 
+    // Loads and stores - Advanced SIMD Load/Store structures (stores only: NCE emulates guest
+    // stores to GPU-written pages, see ArmNce::HandleGuestAccessFault).
+    bool StoreMultiple(bool Q, Imm<4> opcode, Imm<2> size, Reg Rn, Vec Vt, bool wback, Reg Rm);
+    bool StoreSingle(size_t selem, bool Q, Imm<2> upper_opcode, bool S, Imm<2> size, Reg Rn,
+                     Vec Vt, bool wback, Reg Rm);
+    bool STx_mult_1(bool Q, Imm<4> opcode, Imm<2> size, Reg Rn, Vec Vt) override;
+    bool STx_mult_2(bool Q, Reg Rm, Imm<4> opcode, Imm<2> size, Reg Rn, Vec Vt) override;
+    bool ST1_sngl_1(bool Q, Imm<2> upper_opcode, bool S, Imm<2> size, Reg Rn, Vec Vt) override;
+    bool ST1_sngl_2(bool Q, Reg Rm, Imm<2> upper_opcode, bool S, Imm<2> size, Reg Rn,
+                    Vec Vt) override;
+    bool ST2_sngl_1(bool Q, Imm<2> upper_opcode, bool S, Imm<2> size, Reg Rn, Vec Vt) override;
+    bool ST2_sngl_2(bool Q, Reg Rm, Imm<2> upper_opcode, bool S, Imm<2> size, Reg Rn,
+                    Vec Vt) override;
+    bool ST3_sngl_1(bool Q, Imm<2> upper_opcode, bool S, Imm<2> size, Reg Rn, Vec Vt) override;
+    bool ST3_sngl_2(bool Q, Reg Rm, Imm<2> upper_opcode, bool S, Imm<2> size, Reg Rn,
+                    Vec Vt) override;
+    bool ST4_sngl_1(bool Q, Imm<2> upper_opcode, bool S, Imm<2> size, Reg Rn, Vec Vt) override;
+    bool ST4_sngl_2(bool Q, Reg Rm, Imm<2> upper_opcode, bool S, Imm<2> size, Reg Rn,
+                    Vec Vt) override;
+
 private:
     Core::Memory::Memory& m_memory;
     std::span<u64, 31> m_regs;

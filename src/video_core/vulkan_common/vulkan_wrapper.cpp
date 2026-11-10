@@ -66,6 +66,15 @@ void SortPhysicalDevices(std::vector<VkPhysicalDevice>& devices, const InstanceD
         [](const VkPhysicalDeviceProperties& lhs, const VkPhysicalDeviceProperties& rhs) {
             return IsMicrosoftDozen(rhs.deviceName) && !IsMicrosoftDozen(lhs.deviceName);
         });
+    // Demote software rasterizers (llvmpipe/lavapipe, SwiftShader) below every real GPU. The name
+    // sort above put "llvmpipe" ahead of "Adreno (TM) 830" on the Odin 3, so device 0 (the default)
+    // was the CPU renderer whenever the lavapipe ICD was visible.
+    SortPhysicalDevices(
+        devices, dld,
+        [](const VkPhysicalDeviceProperties& lhs, const VkPhysicalDeviceProperties& rhs) {
+            return lhs.deviceType != VK_PHYSICAL_DEVICE_TYPE_CPU &&
+                   rhs.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU;
+        });
 }
 
 template <typename T>

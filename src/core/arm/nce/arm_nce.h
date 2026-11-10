@@ -89,7 +89,7 @@ public:
     Kernel::KThread* m_running_thread{};
 
     // Stack for signal processing.
-    std::unique_ptr<u8[]> m_stack{};
+    u8* m_stack{}; // signal stack (mmap'd with a guard page; kept for the thread's lifetime)
 };
 
 } // namespace Core

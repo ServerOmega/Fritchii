@@ -277,6 +277,11 @@ public:
     /// sensible, false otherwise, addr and size must be a valid combination
     bool OnCPUWrite(DAddr addr, u64 size);
 
+    /// Invalidates the caches over a CPU write without waiting for the GPU thread. False when the
+    /// range holds GPU-written bytes, which only the GPU thread may download (NCE then emulates
+    /// the faulting store through the collected-write path instead of syncing).
+    bool TryInvalidateRegion(DAddr addr, u64 size);
+
     /// Notify rasterizer that any caches of the specified region should be flushed and invalidated
     void FlushAndInvalidateRegion(DAddr addr, u64 size);
 

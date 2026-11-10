@@ -345,6 +345,20 @@ fs::path GetAppDataRoamingDirectory() {
 
 #else
 
+fs::path GetExeDirectory() {
+    std::error_code error;
+    const fs::path self = fs::read_symlink("/proc/self/exe", error);
+    if (!error && !self.empty()) {
+        return self.parent_path();
+    }
+    // AppImage / unusual hosts without /proc/self/exe: cwd is the previous portable fallback.
+    const fs::path cwd = GetCurrentDir();
+    if (!cwd.empty()) {
+        return cwd;
+    }
+    return fs::current_path(error);
+}
+
 fs::path GetHomeDirectory() {
     const char* home_env_var = getenv("HOME");
 

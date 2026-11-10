@@ -506,6 +506,15 @@ public:
 
     bool InvalidateNCE(Common::ProcessAddress vaddr, size_t size);
 
+    enum class NceWriteFault {
+        Unmapped,        ///< Not guest memory: the fault is not ours.
+        Invalidated,     ///< The page was clean in the GPU caches and is writable again.
+        NeedsEmulation,  ///< GPU-written page: emulate the store (collected like Dynarmic's).
+        NotRasterizer,   ///< Mapped but not a GPU-cached page: use InvalidateNCE.
+    };
+    /// Write fault under NCE that never waits for the GPU thread.
+    NceWriteFault InvalidateNCEForWrite(Common::ProcessAddress vaddr, size_t size);
+
     bool InvalidateSeparateHeap(void* fault_address);
 
 private:

@@ -1280,8 +1280,10 @@ void HostMemory::CommitAllBut(std::span<const std::pair<size_t, size_t>> lazy) {
     if (offset < backing_size) {
         Commit(offset, backing_size - offset);
     }
+#ifdef _WIN32
     LOG_INFO(HW_Memory, "EDEN_NX2_SEC_RESERVE: {} MiB of guest memory committed (the kernel's own)",
              g_committed_bytes.load(std::memory_order_relaxed) >> 20);
+#endif
 }
 
 HostMemory::CommitStats HostMemory::GetCommitStats() {
@@ -1300,7 +1302,9 @@ HostMemory::CommitStats HostMemory::GetCommitStats() {
 
 void HostMemory::EnableDirectMappedAddress() {
 #if !(defined(__OPENORBIS__) || defined(__managarm__))
-    if (impl) {
+    // Once only: the device memory outlives a game, and a second NCE boot in the same session
+    // added the base again.
+    if (impl && impl->virtual_base != nullptr) {
         impl->EnableDirectMappedAddress();
         virtual_size += reinterpret_cast<uintptr_t>(virtual_base);
     }

@@ -1,7 +1,10 @@
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <map>
 #include <numeric>
+#include <string>
+#include <fmt/format.h>
 #include <bit>
 #include "common/cpu_features.h"
 #include "common/alignment.h"
@@ -98,6 +101,10 @@ bool Patcher::PatchText(std::span<const u8> program_image, const Kernel::CodeSet
     const auto text_words =
         std::span<const u32>{reinterpret_cast<const u32*>(text.data()), text.size() / sizeof(u32)};
 
+    // Counts for the load log (what the patcher redirects, and system registers left native).
+    size_t n_svc = 0, n_tls = 0, n_counter = 0, n_cntfrq = 0, n_msr = 0;
+    std::map<u32, size_t> native_sysregs;
+
     // Loop through instructions, patching as needed.
     for (u32 i = ModuleCodeIndex; i < static_cast<u32>(text_words.size()); i++) {
         const u32 inst = text_words[i];
@@ -121,6 +128,7 @@ bool Patcher::PatchText(std::span<const u8> program_image, const Kernel::CodeSet
 
         // SVC
         if (auto svc = SVC{inst}; svc.Verify()) {
+            ++n_svc;
             bool pre_buffer = false;
             auto ret = AddRelocations(pre_buffer);
             if (pre_buffer) {
@@ -138,6 +146,7 @@ bool Patcher::PatchText(std::span<const u8> program_image, const Kernel::CodeSet
             const auto src_reg = mrs.GetSystemReg() == TpidrroEl0 ? oaknut::SystemReg::TPIDRRO_EL0
                                                                   : oaknut::SystemReg::TPIDR_EL0;
             const auto dest_reg = oaknut::XReg{static_cast<int>(mrs.GetRt())};
+            ++n_tls;
             bool pre_buffer = false;
             auto ret = AddRelocations(pre_buffer);
             if (pre_buffer) {
@@ -149,7 +158,10 @@ bool Patcher::PatchText(std::span<const u8> program_image, const Kernel::CodeSet
         }
 
         // MRS Xn, CNTPCT_EL0
-        if (auto mrs = MRS{inst}; mrs.Verify() && mrs.GetSystemReg() == CntpctEl0) {
+        // MRS Xn, CNTVCT_EL0 (the host's virtual counter runs at the host's rate, not the guest's)
+        if (auto mrs = MRS{inst}; mrs.Verify() && (mrs.GetSystemReg() == CntpctEl0 ||
+                                                   mrs.GetSystemReg() == CntvctEl0)) {
+            ++n_counter;
             bool pre_buffer = false;
             auto ret = AddRelocations(pre_buffer);
             if (pre_buffer) {
@@ -162,6 +174,7 @@ bool Patcher::PatchText(std::span<const u8> program_image, const Kernel::CodeSet
 
         // MRS Xn, CNTFRQ_EL0
         if (auto mrs = MRS{inst}; mrs.Verify() && mrs.GetSystemReg() == CntfrqEl0) {
+            ++n_cntfrq;
             bool pre_buffer = false;
             auto ret = AddRelocations(pre_buffer);
             if (pre_buffer) {
@@ -174,6 +187,7 @@ bool Patcher::PatchText(std::span<const u8> program_image, const Kernel::CodeSet
 
         // MSR TPIDR_EL0, Xn
         if (auto msr = MSR{inst}; msr.Verify() && msr.GetSystemReg() == TpidrEl0) {
+            ++n_msr;
             bool pre_buffer = false;
             auto ret = AddRelocations(pre_buffer);
              if (pre_buffer) {
@@ -184,9 +198,34 @@ bool Patcher::PatchText(std::span<const u8> program_image, const Kernel::CodeSet
             continue;
         }
 
+        if (auto mrs = MRS{inst}; mrs.Verify() && (mrs.GetSystemReg() >> 14) == 1) {
+            // Other EL0 system register reads (op0 = 3) run natively.
+            ++native_sysregs[mrs.GetSystemReg()];
+        } else if (auto msr = MSR{inst}; msr.Verify() && (msr.GetSystemReg() >> 14) == 1) {
+            ++native_sysregs[0x10000 | msr.GetSystemReg()];
+        }
+
         if (auto exclusive = Exclusive{inst}; exclusive.Verify()) {
             curr_patch->m_exclusives.push_back(i);
         }
+    }
+
+    {
+        std::string native;
+        size_t shown = 0;
+        for (const auto& [reg, count] : native_sysregs) {
+            if (shown++ == 12) {
+                native += " ...";
+                break;
+            }
+            native += fmt::format(" {}{:#06x}x{}", (reg & 0x10000) ? "msr:" : "mrs:", reg & 0xFFFF,
+                                  count);
+        }
+        LOG_INFO(Core_ARM,
+                 "NCE patcher: text {:#x} bytes (image {:#x}): {} svc, {} tls mrs, {} counter mrs, "
+                 "{} cntfrq mrs, {} tpidr msr; native sysregs:{}",
+                 text.size(), image_size, n_svc, n_tls, n_counter, n_cntfrq, n_msr,
+                 native.empty() ? std::string{" none"} : native);
     }
 
     // Determine patching mode for the final relocation step
