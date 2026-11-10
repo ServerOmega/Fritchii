@@ -6,7 +6,7 @@ on:
       publish_release:
         description: Publish the binaries as a GitHub release
         type: boolean
-        default: true
+        default: false
   push:
     branches:
       - nx2-experimental
@@ -48,7 +48,8 @@ jobs:
       contents: write
     steps:
       - name: Prepare release tag
-        if: github.event_name == 'push' || inputs.publish_release
+        # Test branch only: never tag or publish.
+        if: false
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -89,19 +90,7 @@ jobs:
           - platform: linux-x86_64-pgo
             runner: ubuntu-24.04
             pgo: true
-          - platform: windows-x86_64
-            runner: windows-2022
-          - platform: windows-x86_64-pgo
-            runner: windows-2022
-            pgo: true
-            mingw: true
-          - platform: linux-aarch64
-            runner: ubuntu-24.04-arm
-          - platform: linux-aarch64-pgo
-            runner: ubuntu-24.04-arm
-            pgo: true
-          - platform: macos-arm64
-            runner: macos-15
+          # Test branch only: matrix trimmed to Linux x86_64 standard + PGO.
 
     steps:
       - name: Check out source
@@ -661,7 +650,8 @@ jobs:
   release:
     name: Publish release
     needs: build
-    if: github.event_name == 'push' || inputs.publish_release
+    # Test branch only: never publish a release.
+    if: false
     runs-on: ubuntu-24.04
     permissions:
       contents: write
