@@ -148,4 +148,49 @@ std::string Describe(const Plan& plan, const Topology& topology, Mode mode) {
                        plan.front, plan.back, plan.guest, plan.chosen_cores, where, cpu);
 }
 
+u64 ParseCpuMap(std::string_view text) {
+    u64 mask = 0;
+    for (const char c : text) {
+        // Processors from 64 on shift out. Commas separate the 32-bit words.
+        if (c >= '0' && c <= '9') {
+            mask = mask << 4 | static_cast<u64>(c - '0');
+        } else if (c >= 'a' && c <= 'f') {
+            mask = mask << 4 | static_cast<u64>(c - 'a' + 10);
+        } else if (c >= 'A' && c <= 'F') {
+            mask = mask << 4 | static_cast<u64>(c - 'A' + 10);
+        }
+    }
+    return mask;
+}
+
+u64 ParseCpuList(std::string_view text) {
+    u64 mask = 0;
+    std::size_t at = 0;
+    const auto number = [&](u32& value) {
+        const std::size_t start = at;
+        for (value = 0; at < text.size() && text[at] >= '0' && text[at] <= '9'; ++at) {
+            value = (std::min)(value * 10 + static_cast<u32>(text[at] - '0'), 1U << 20);
+        }
+        return at != start;
+    };
+    while (at < text.size()) {
+        u32 first{};
+        if (!number(first)) {
+            ++at;
+            continue;
+        }
+        u32 last = first;
+        if (at < text.size() && text[at] == '-') {
+            ++at;
+            if (!number(last)) {
+                last = first;
+            }
+        }
+        for (u32 cpu = first; cpu <= last && cpu < 64; ++cpu) {
+            mask |= u64{1} << cpu;
+        }
+    }
+    return mask;
+}
+
 } // namespace Common::ThreadPinning

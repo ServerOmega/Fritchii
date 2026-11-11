@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "common/common_types.h"
@@ -69,5 +70,11 @@ struct Plan {
 [[nodiscard]] Plan MakePlan(const Topology& topology, Mode mode);
 
 [[nodiscard]] std::string Describe(const Plan& plan, const Topology& topology, Mode mode);
+
+/// Linux sysfs CPU sets as a mask of logical processors 0-63: the hex words of a
+/// thread_siblings or shared_cpu_map file ("00000000,00000041")...
+[[nodiscard]] u64 ParseCpuMap(std::string_view text);
+/// ...and the ranges of a cpus or *_list file ("0-3,6").
+[[nodiscard]] u64 ParseCpuList(std::string_view text);
 
 } // namespace Common::ThreadPinning

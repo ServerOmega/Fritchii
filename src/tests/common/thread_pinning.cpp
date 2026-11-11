@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <string>
+
 #include <catch2/catch_test_macros.hpp>
 
 #include "common/thread_pinning.h"
@@ -245,4 +247,36 @@ TEST_CASE("Thread pinning: the plan is described", "[common][thread_pinning]") {
           "performance and 0 efficiency cores, 2 L3 caches");
     CHECK(Describe(MakePlan(cpu, Mode::Off), cpu, Mode::Off) ==
           "off (EDEN_NX2_PIN_THREADS=0); 8 performance and 0 efficiency cores, 1 L3 cache");
+}
+
+TEST_CASE("Thread pinning: sysfs CPU sets", "[common][thread_pinning]") {
+    CHECK(ParseCpuMap("041\n") == 0x41);
+    CHECK(ParseCpuMap("00000000,00000FfF\n") == 0xfff);
+    CHECK(ParseCpuMap("80000000,00000001") == 0x8000'0000'0000'0001ULL);
+    // Processors from 64 on are dropped.
+    CHECK(ParseCpuMap("00000003,00000000,00000100\n") == 0x100);
+    CHECK(ParseCpuMap("") == 0);
+
+    CHECK(ParseCpuList("0-3,6\n") == 0x4f);
+    CHECK(ParseCpuList("12-19") == 0xff000);
+    CHECK(ParseCpuList("5") == 0x20);
+    CHECK(ParseCpuList("62-65,128-191\n") == 0xc000'0000'0000'0000ULL);
+    CHECK(ParseCpuList("\n") == 0);
+}
+
+// An i5-11400 as Linux numbers it: the second thread of core N is processor N + 6.
+TEST_CASE("Thread pinning: SMT siblings apart", "[common][thread_pinning]") {
+    Topology cpu;
+    u64 all = 0;
+    for (u32 core = 0; core < 6; ++core) {
+        const u64 mask = ParseCpuList(std::to_string(core) + "," + std::to_string(core + 6));
+        cpu.cores.push_back({mask, 1});
+        all |= mask;
+    }
+    cpu.l3.push_back({all, 12 * MiB});
+    cpu.logical_processors = 12;
+    const Plan plan = MakePlan(cpu, Mode::Auto);
+    CHECK(plan.front == 0x82);
+    CHECK(plan.back == 0x104);
+    CHECK(plan.guest == 0xe79);
 }
