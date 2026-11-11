@@ -759,17 +759,32 @@ endif()
 
 # TODO: Icon/install handling n such should be put into dist/CMakeLists.txt
 if(ENABLE_QT AND UNIX AND NOT APPLE)
-    install(FILES "dist/io.github.zortos293.lichii.desktop"
-        DESTINATION "share/applications")
-    install(FILES "dist/lichii.png"
-        DESTINATION "share/icons/hicolor/256x256/apps"
-        RENAME "io.github.zortos293.lichii.png")
+    set(FRIZTI_VERSION_FILE "${CMAKE_SOURCE_DIR}/dist/frizti_version.txt")
+    if (NOT DEFINED FRIZTI_VERSION AND EXISTS "${FRIZTI_VERSION_FILE}")
+        file(STRINGS "${FRIZTI_VERSION_FILE}" FRIZTI_VERSION LIMIT_COUNT 1 REGEX "^[0-9]+([.][0-9]+)?([.][0-9]+)?$")
+    endif()
+
+    if (FRIZTI_VERSION)
+        install(FILES "dist/fritchii.desktop"
+            DESTINATION "share/applications")
+        install(FILES "dist/fritchii.png"
+            DESTINATION "share/icons/hicolor/256x256/apps"
+            RENAME "fritchii.png")
+    else()
+        install(FILES "dist/io.github.zortos293.lichii.desktop"
+            DESTINATION "share/applications")
+        install(FILES "dist/lichii.png"
+            DESTINATION "share/icons/hicolor/256x256/apps"
+            RENAME "io.github.zortos293.lichii.png")
+    endif()
 
     # TODO: these files need to be updated.
     install(FILES "dist/dev.eden_emu.eden.xml"
         DESTINATION "share/mime/packages")
-    install(FILES "dist/io.github.zortos293.lichii.metainfo.xml"
-        DESTINATION "share/metainfo")
+    if (NOT FRIZTI_VERSION)
+        install(FILES "dist/io.github.zortos293.lichii.metainfo.xml"
+            DESTINATION "share/metainfo")
+    endif()
 endif()
 
 if (YUZU_INSTALL_UDEV_RULES)
