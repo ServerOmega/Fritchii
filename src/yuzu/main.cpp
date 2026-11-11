@@ -14,6 +14,7 @@
 
 #include "common/fs/fs_paths.h"
 #include "common/fs/path_util.h"
+#include "common/scm_rev.h"
 #include "startup_checks.h"
 
 #if YUZU_ROOM
