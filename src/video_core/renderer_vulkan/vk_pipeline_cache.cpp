@@ -641,10 +641,12 @@ void LogDriverCacheFolder(const Device& device, std::string_view when) {
         const char* const size = std::getenv("__GL_SHADER_DISK_CACHE_SIZE");
         const char* const skip = std::getenv("__GL_SHADER_DISK_CACHE_SKIP_CLEANUP");
         const char* const disabled = std::getenv("__GL_SHADER_DISK_CACHE");
+        const char* const cache_path = std::getenv("__GL_SHADER_DISK_CACHE_PATH");
         LOG_INFO(Render_Vulkan,
-                 "Driver cache settings ({}): __GL_SHADER_DISK_CACHE={} _SIZE={} _SKIP_CLEANUP={}",
-                 when, disabled ? disabled : "(unset)", size ? size : "(unset)",
-                 skip ? skip : "(unset)");
+                 "Driver cache settings ({}): __GL_SHADER_DISK_CACHE={} _PATH={} _SIZE={} "
+                 "_SKIP_CLEANUP={}",
+                 when, disabled ? disabled : "(unset)", cache_path ? cache_path : "(unset)",
+                 size ? size : "(unset)", skip ? skip : "(unset)");
     }
 #endif
     std::error_code ec;

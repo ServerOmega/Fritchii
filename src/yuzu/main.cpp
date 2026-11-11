@@ -249,6 +249,28 @@ int main(int argc, char* argv[]) {
     // also reads these variables, for this process only (nothing system-wide changes). A value
     // already set (the player's, or nx2_switches.txt) wins.
     if (FritchiiUi::Enabled()) {
+        // A stable path under ~/.cache/fritchii, not the shared ~/.cache/nvidia/GLCache that
+        // other OpenGL/Vulkan apps (and the driver's default cleanup) can evict. Already-set
+        // values (the player's, or nx2_switches.txt) win.
+#if defined(__linux__) && !defined(__ANDROID__)
+        if (!qEnvironmentVariableIsSet("__GL_SHADER_DISK_CACHE_PATH")) {
+            std::filesystem::path folder;
+            if (const char* const xdg = std::getenv("XDG_CACHE_HOME");
+                xdg != nullptr && xdg[0] != '\0') {
+                folder = std::filesystem::path{xdg} / "fritchii" / "nvidia-glcache";
+            } else if (const char* const home = std::getenv("HOME"); home != nullptr) {
+                folder = std::filesystem::path{home} / ".cache" / "fritchii" / "nvidia-glcache";
+            }
+            if (!folder.empty()) {
+                std::error_code ec;
+                std::filesystem::create_directories(folder, ec);
+                qputenv("__GL_SHADER_DISK_CACHE_PATH", QByteArray::fromStdString(folder.string()));
+            }
+        }
+        if (!qEnvironmentVariableIsSet("__GL_SHADER_DISK_CACHE")) {
+            qputenv("__GL_SHADER_DISK_CACHE", "1");
+        }
+#endif
         if (!qEnvironmentVariableIsSet("__GL_SHADER_DISK_CACHE_SKIP_CLEANUP")) {
             qputenv("__GL_SHADER_DISK_CACHE_SKIP_CLEANUP", "1");
         }
