@@ -180,6 +180,11 @@ std::unique_ptr<TranslationMap> InitializeTranslations(QObject* parent) {
               "remains active.\nIn The Legend of Zelda: Ocarina of Time it replaces the game's "
               "upscaler at 1x resolution scale.\nTakes effect when a game starts."));
 #endif
+    INSERT(Settings, nvidia_reflex, tr("NVIDIA Reflex:"),
+           tr("NVIDIA Reflex low latency mode (VK_NV_low_latency2, GeForce GPUs with a current "
+              "driver). Keeps the GPU queue short so frames reach the screen sooner. Boost also "
+              "keeps GPU clocks up.\nRecommended with DLSS Frame Generation. Does nothing on "
+              "GPUs or drivers without VK_NV_low_latency2.\nTakes effect when a game starts."));
     INSERT(Settings, nvidia_dlss_frame_gen, tr("DLSS Frame Generation (experimental):"),
            tr("Native NVIDIA DLSS Frame Generation (Linux, GeForce RTX 40 and 50 series). Adds "
               "generated frames between the frames NVIDIA DLSS upscales: 2x adds one, 3x and 4x "
@@ -627,6 +632,12 @@ std::unique_ptr<ComboboxTranslationMap> ComboboxEnumeration(QObject* parent) {
                               PAIR(AntiAliasing, None, tr("None")),
                               PAIR(AntiAliasing, Fxaa, tr("FXAA")),
                               PAIR(AntiAliasing, Smaa, tr("SMAA")),
+                          }});
+    translations->insert({Settings::EnumMetadata<Settings::NvidiaReflex>::Index(),
+                          {
+                              PAIR(NvidiaReflex, Off, tr("Off")),
+                              PAIR(NvidiaReflex, On, tr("On")),
+                              PAIR(NvidiaReflex, Boost, tr("On + Boost")),
                           }});
     translations->insert({Settings::EnumMetadata<Settings::DlssFrameGen>::Index(),
                           {

@@ -727,6 +727,16 @@ FN_MAX_LIMIT_LIST
         return features.features.pipelineStatisticsQuery;
     }
 
+    /// Whether VK_NV_low_latency2 (NVIDIA Reflex) is enabled.
+    bool IsNvLowLatency2Enabled() const {
+        return nv_low_latency2;
+    }
+
+    /// Whether presents can carry ids (VK_KHR_present_id).
+    bool IsKhrPresentIdSupported() const {
+        return extensions.present_id;
+    }
+
     /// Whether presents can carry ids and be waited on until shown (the host frame pacer).
     bool IsKhrPresentWaitSupported() const {
         return extensions.present_id && extensions.present_wait;
@@ -1428,6 +1438,7 @@ private:
     std::set<std::string, std::less<>> supported_extensions; ///< Reported Vulkan extensions.
     std::set<std::string, std::less<>> loaded_extensions;    ///< Loaded Vulkan extensions.
     bool streamline_extensions{}; ///< NVIDIA DLSS's extensions are loaded.
+    bool nv_low_latency2{};       ///< VK_NV_low_latency2 (NVIDIA Reflex) is loaded.
     bool streamline_attached{};   ///< Streamline has this device.
     std::vector<size_t> valid_heap_memory;                   ///< Heaps used.
     size_t main_heap{};       ///< Largest device-local heap, where images live.

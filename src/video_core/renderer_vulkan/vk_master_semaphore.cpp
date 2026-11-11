@@ -9,6 +9,7 @@
 #include <ranges>
 #include "common/settings.h"
 #include "video_core/renderer_vulkan/vk_master_semaphore.h"
+#include "video_core/renderer_vulkan/vk_reflex.h"
 #include "video_core/vulkan_common/vulkan_device.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
 
@@ -136,6 +137,14 @@ VkResult MasterSemaphore::SubmitQueueTimeline(vk::CommandBuffer& cmdbuf,
                                               VkSemaphore signal_semaphore,
                                               VkSemaphore wait_semaphore, u64 host_tick) {
     const VkSemaphore timeline_semaphore = *semaphore;
+    // NVIDIA Reflex: which frame's present this work belongs to.
+    const VkLatencySubmissionPresentIdNV latency_submission{
+        .sType = VK_STRUCTURE_TYPE_LATENCY_SUBMISSION_PRESENT_ID_NV,
+        .pNext = nullptr,
+        .presentID = ReflexSubmissionPresentId(),
+    };
+    const void* const latency_next = latency_submission.presentID != 0 ? &latency_submission
+                                                                       : nullptr;
 
     if (device.HasSynchronization2()) {
         const std::array<VkCommandBufferSubmitInfo, 2> cmdbuffer_infos{{
@@ -189,7 +198,7 @@ VkResult MasterSemaphore::SubmitQueueTimeline(vk::CommandBuffer& cmdbuf,
 
         const VkSubmitInfo2 submit_info2{
             .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
-            .pNext = nullptr,
+            .pNext = latency_next,
             .flags = 0,
             .waitSemaphoreInfoCount = num_wait_semaphores,
             .pWaitSemaphoreInfos = num_wait_semaphores ? &wait_info : nullptr,
@@ -218,7 +227,7 @@ VkResult MasterSemaphore::SubmitQueueTimeline(vk::CommandBuffer& cmdbuf,
     const u64 wait_zero = 0; // dummy for binary wait
     const VkTimelineSemaphoreSubmitInfo timeline_si{
         .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
-        .pNext = nullptr,
+        .pNext = latency_next,
         .waitSemaphoreValueCount = num_wait_semaphores,
         .pWaitSemaphoreValues    = num_wait_semaphores ? &wait_zero : nullptr,
         .signalSemaphoreValueCount = num_signal_semaphores,

@@ -240,6 +240,12 @@ void ConfigureGraphics::Setup(const ConfigurationShared::Builder& builder) {
             continue;
         }
 #endif
+#ifdef EGLANTINE_STREAMLINE
+        // Streamline builds leave latency to Streamline.
+        if (setting->Id() == Settings::values.nvidia_reflex.Id()) {
+            continue;
+        }
+#endif
 #ifndef EGLANTINE_NGX
         // DLSS Frame Generation runs on the native NGX backend only.
         if (setting->Id() == Settings::values.nvidia_dlss_frame_gen.Id()) {

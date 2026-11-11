@@ -33,6 +33,7 @@
 #include "video_core/vulkan_common/nsight_aftermath_tracker.h"
 #include "video_core/vulkan_common/vma.h"
 #include "video_core/vulkan_common/vulkan_device.h"
+#include "video_core/vulkan_common/reflex_mode.h"
 #include "video_core/nx2_perf.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
 #include "video_core/gpu_logging/gpu_logging.h"
@@ -1302,6 +1303,22 @@ bool Device::GetSuitability(bool requires_swapchain) {
 #endif
     }
 #endif
+
+    // NVIDIA Reflex (VK_NV_low_latency2): when asked for, or when DLSS Frame Generation already
+    // asked for the extension. Its sleep and markers tie frames to present ids.
+    {
+        const bool reflex_wanted = RequestedReflexMode() != Settings::NvidiaReflex::Off;
+        const bool supported = supported_extensions.contains(VK_NV_LOW_LATENCY_2_EXTENSION_NAME);
+        if (reflex_wanted && supported) {
+            loaded_extensions.insert(VK_NV_LOW_LATENCY_2_EXTENSION_NAME);
+        }
+        nv_low_latency2 = loaded_extensions.contains(VK_NV_LOW_LATENCY_2_EXTENSION_NAME);
+        if (reflex_wanted || nv_low_latency2) {
+            LOG_INFO(Render_Vulkan, "Reflex: VK_NV_low_latency2 {}{}",
+                     supported ? "available" : "missing",
+                     nv_low_latency2 && !reflex_wanted ? " (enabled for DLSS-G, Reflex off)" : "");
+        }
+    }
 
 #undef FEATURE_EXTENSION
 #undef EXTENSION

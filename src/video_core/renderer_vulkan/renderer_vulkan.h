@@ -23,6 +23,7 @@
 #endif
 #include "video_core/renderer_vulkan/vk_present_manager.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
+#include "video_core/renderer_vulkan/vk_reflex.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_state_tracker.h"
 #include "video_core/renderer_vulkan/vk_swapchain.h"
@@ -123,6 +124,8 @@ private:
     /// DLSS Frame Generation; only exists while it is asked for and available.
     std::optional<NgxFrameGen> ngx_frame_gen;
 #endif
+    /// NVIDIA Reflex; only exists while it is asked for and the device has VK_NV_low_latency2.
+    std::optional<Reflex> reflex;
     std::optional<TurboMode> turbo_mode;
 
     Frame applet_frame;

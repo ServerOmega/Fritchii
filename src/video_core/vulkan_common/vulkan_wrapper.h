@@ -347,6 +347,10 @@ struct DeviceDispatch : InstanceDispatch {
 #endif
     PFN_vkGetPipelineExecutablePropertiesKHR vkGetPipelineExecutablePropertiesKHR{};
     PFN_vkWaitForPresentKHR vkWaitForPresentKHR{};
+    PFN_vkSetLatencySleepModeNV vkSetLatencySleepModeNV{};
+    PFN_vkLatencySleepNV vkLatencySleepNV{};
+    PFN_vkSetLatencyMarkerNV vkSetLatencyMarkerNV{};
+    PFN_vkGetLatencyTimingsNV vkGetLatencyTimingsNV{};
     PFN_vkGetPipelineExecutableStatisticsKHR vkGetPipelineExecutableStatisticsKHR{};
     PFN_vkGetQueryPoolResults vkGetQueryPoolResults{};
     PFN_vkGetSemaphoreCounterValue vkGetSemaphoreCounterValue{};

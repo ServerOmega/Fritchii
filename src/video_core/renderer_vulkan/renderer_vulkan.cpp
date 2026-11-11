@@ -40,6 +40,7 @@
 #include "video_core/vulkan_common/vulkan_instance.h"
 #include "video_core/vulkan_common/vulkan_library.h"
 #include "video_core/vulkan_common/vulkan_memory_allocator.h"
+#include "video_core/vulkan_common/reflex_mode.h"
 #include "video_core/vulkan_common/vulkan_surface.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
 #ifdef EGLANTINE_NVIDIA_DLSS
@@ -193,6 +194,10 @@ try
         ngx_frame_gen.emplace(device, memory_allocator, scheduler);
     }
 #endif
+    if (RequestedReflexMode() != Settings::NvidiaReflex::Off && device.IsNvLowLatency2Enabled() &&
+        device.IsKhrPresentIdSupported()) {
+        reflex.emplace(device, swapchain);
+    }
 
     if (Settings::values.renderer_force_max_clock.GetValue() && device.ShouldBoostClocks()) {
         turbo_mode.emplace(instance, dld);
@@ -229,6 +234,9 @@ void RendererVulkan::Composite(std::span<const Tegra::FramebufferConfig> framebu
     }
 
     RenderScreenshot(framebuffers);
+    if (reflex) {
+        reflex->EnsureFrame();
+    }
     const auto acquiring = trace ? std::chrono::steady_clock::now()
                                  : std::chrono::steady_clock::time_point{};
     Frame* frame = present_manager.GetRenderFrame();
@@ -270,6 +278,9 @@ void RendererVulkan::Composite(std::span<const Tegra::FramebufferConfig> framebu
             ngx_frame_gen->GenerateInto(generated, index);
             generated->dlssg_slot = index;
             generated->dlssg_count = generations + 1;
+            if (reflex && reflex->Active()) {
+                generated->reflex_present_id = reflex->GeneratedPresentId(index);
+            }
             generated->render_tick = scheduler.Flush(*generated->render_ready);
             present_manager.Present(generated);
         }
@@ -283,7 +294,14 @@ void RendererVulkan::Composite(std::span<const Tegra::FramebufferConfig> framebu
     if (trace) {
         scheduler.MarkFrameEnd(++trace_frame);
     }
+    if (reflex && reflex->Active()) {
+        frame->reflex_present_id = reflex->RenderedPresentId();
+        frame->reflex_markers = true;
+    }
     frame->render_tick = scheduler.Flush(*frame->render_ready);
+    if (reflex) {
+        reflex->RenderSubmitEnd();
+    }
 
     const auto presenting = trace ? std::chrono::steady_clock::now()
                                   : std::chrono::steady_clock::time_point{};
@@ -296,6 +314,10 @@ void RendererVulkan::Composite(std::span<const Tegra::FramebufferConfig> framebu
 
     gpu.RendererFrameEndNotify();
     rasterizer.TickFrame();
+    if (reflex) {
+        // The next emulated frame starts here: Reflex holds it until the driver wants it.
+        reflex->NextFrame();
+    }
     if (trace) {
         const auto end = std::chrono::steady_clock::now();
         const auto ms = [](auto duration) {

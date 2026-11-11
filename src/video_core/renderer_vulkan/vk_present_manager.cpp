@@ -212,6 +212,8 @@ Frame* PresentManager::GetRenderFrame() {
     frame->present_done.Reset();
     frame->dlssg_slot = 0;
     frame->dlssg_count = 0;
+    frame->reflex_present_id = 0;
+    frame->reflex_markers = false;
 
     return frame;
 }
@@ -413,11 +415,16 @@ void PresentManager::PresentThread(std::stop_token token) {
             }
             if (present_wait_enabled) {
                 const auto submitted = std::chrono::steady_clock::now();
-                pacer.NoteSubmitted(last_present_id, submitted, held);
+                // Reflex's present ids skip numbers; the pacer wants them consecutive.
+                const u64 pacer_id = !swapchain.LatencyEnabled() ? last_present_id
+                                     : last_present_id != 0      ? ++pacer_sequence
+                                                                 : 0;
+                pacer.NoteSubmitted(pacer_id, submitted, held);
                 if (last_present_id != 0) {
                     {
                         std::scoped_lock ql{wait_queue_mutex};
-                        wait_queue.push_back({last_present_id, swapchain.Handle(), submitted});
+                        wait_queue.push_back(
+                            {last_present_id, pacer_id, swapchain.Handle(), submitted});
                     }
                     wait_queue_cv.notify_one();
                 }
@@ -609,7 +616,7 @@ void PresentManager::PresentWaitThread(std::stop_token token) {
             }
             wait_queue.pop_front();
         }
-        ReportShown(item.id, now, result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR);
+        ReportShown(item.pacer_id, now, result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR);
     }
 }
 
@@ -643,7 +650,7 @@ void PresentManager::RecreateSwapchain(Frame* frame) {
             dropped.swap(wait_queue);
         }
         for (const PendingWait& item : dropped) {
-            ReportShown(item.id, std::chrono::steady_clock::now(), true);
+            ReportShown(item.pacer_id, std::chrono::steady_clock::now(), true);
         }
     }
     swapchain.Create(*surface, frame->width, frame->height); // Pass raw pointer
@@ -857,9 +864,16 @@ void PresentManager::CopyToSwapchainImpl(Frame* frame) {
         VK_PIPELINE_STAGE_TRANSFER_BIT,
     };
 
+    // NVIDIA Reflex: this copy belongs to the frame's present.
+    const VkLatencySubmissionPresentIdNV latency_submission{
+        .sType = VK_STRUCTURE_TYPE_LATENCY_SUBMISSION_PRESENT_ID_NV,
+        .pNext = nullptr,
+        .presentID = frame->reflex_present_id,
+    };
+    const bool reflex_submission = frame->reflex_present_id != 0 && swapchain.LatencyEnabled();
     const VkSubmitInfo submit_info{
         .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .pNext = nullptr,
+        .pNext = reflex_submission ? &latency_submission : nullptr,
         .waitSemaphoreCount = 2U,
         .pWaitSemaphores = wait_semaphores.data(),
         .pWaitDstStageMask = wait_stage_masks.data(),
@@ -886,7 +900,8 @@ void PresentManager::CopyToSwapchainImpl(Frame* frame) {
     }
 
     // Present
-    last_present_id = swapchain.Present(render_semaphore);
+    last_present_id =
+        swapchain.Present(render_semaphore, frame->reflex_present_id, frame->reflex_markers);
 }
 
 } // namespace Vulkan

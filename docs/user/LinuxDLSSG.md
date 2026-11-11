@@ -24,10 +24,32 @@ Or set `EDEN_DLSSG=2|3|4` (0 or 1 forces it off). Restart the game after changin
 Keep "asynchronous presentation" on (default): the present thread spaces the generated frames.
 VSync off (Immediate) or Mailbox gives the most room; FIFO caps the output at the refresh rate.
 
+## NVIDIA Reflex
+
+Graphics > "NVIDIA Reflex": Off (default) / On / On + Boost, or `EDEN_REFLEX=0|1|2`.
+Independent of DLSS and frame generation, recommended with frame generation. Needs
+`VK_NV_low_latency2` and `VK_KHR_present_id` (current NVIDIA drivers). Takes effect at game start.
+
+What it does: the swapchain is created in latency mode with the low latency sleep mode set
+(Boost also keeps clocks up); each emulated frame starts on the GPU thread right after the
+previous one was handed to the present queue, after `vkLatencySleepNV` releases it. Each
+rendered frame gets one present id: simulation start/end and render submit start are marked at
+the frame start, render submit end after its last submission, present start/end around its
+`vkQueuePresentKHR`; queue submissions carry the id (`VkLatencySubmissionPresentIdNV`). Generated
+frames get their own (lower) present ids without markers. The guest CPU's work isn't visible to
+the renderer, so "simulation" spans nothing and input sampling isn't marked.
+
+Log lines: `Reflex: VK_NV_low_latency2 available` (or `missing`), `Reflex: sleep mode set (low
+latency on, boost off)`, `Reflex: on (...)`, `Reflex: first frame start sleep done`, and every 600
+frames `Reflex: frame N: last K frames: frame start to GPU done X ms, render submit ..., present
+call ..., GPU render ..., OS queue ...`. Failures: `Reflex: off for this session (...)`,
+`vkSetLatencySleepModeNV failed`, `vkLatencySleepNV never signalled in time` (sleep turns off,
+markers stay).
+
 ## Logs
 
 ```
-grep -E 'DLSS-G|NVIDIA DLSS \(native NGX\)' ~/.local/share/fritchii/log/eden_log.txt
+grep -E 'DLSS-G|Reflex|NVIDIA DLSS \(native NGX\)' ~/.local/share/fritchii/log/eden_log.txt
 ```
 
 In order, expect:

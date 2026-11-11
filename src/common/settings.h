@@ -68,6 +68,7 @@ SWITCHABLE(OotAntiAliasing, false);
 SWITCHABLE(DlssPreset, false);
 SWITCHABLE(NvidiaDlssQuality, false);
 SWITCHABLE(DlssFrameGen, false);
+SWITCHABLE(NvidiaReflex, false);
 SWITCHABLE(OotRefreshCap, false);
 SWITCHABLE(OotMovieUpscale, false);
 SWITCHABLE(AspectRatio, true);
@@ -428,6 +429,16 @@ struct Values {
                                                           Specialization::Default,
                                                           true,
                                                           false};
+    // NVIDIA Reflex (VK_NV_low_latency2): the driver's low latency mode and frame start sleep.
+    // Off by default; independent of DLSS, recommended with DLSS Frame Generation.
+    // EDEN_REFLEX=0|1|2 overrides it. Takes effect at game start.
+    SwitchableSetting<NvidiaReflex> nvidia_reflex{linkage,
+                                                  NvidiaReflex::Off,
+                                                  "nvidia_reflex",
+                                                  Category::Renderer,
+                                                  Specialization::Default,
+                                                  true,
+                                                  false};
     SwitchableSetting<AspectRatio, true> aspect_ratio{linkage,
                                                       AspectRatio::R16_9,
                                                       "aspect_ratio",

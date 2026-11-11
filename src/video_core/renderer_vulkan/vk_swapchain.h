@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <mutex>
 #include <vector>
 
 #include "common/common_types.h"
@@ -43,7 +44,22 @@ public:
 
     /// Presents the rendered image to the swapchain. Returns its present id for
     /// vkWaitForPresentKHR, or 0 (no present wait support, or the present failed).
-    u64 Present(VkSemaphore render_semaphore);
+    /// With NVIDIA Reflex, `reflex_present_id` (when above every earlier id) is the present's
+    /// id, and `reflex_markers` brackets it with PRESENT_START/END.
+    u64 Present(VkSemaphore render_semaphore, u64 reflex_present_id = 0,
+                bool reflex_markers = false);
+
+    /// NVIDIA Reflex (VK_NV_low_latency2): the swapchain was created with latency mode on.
+    [[nodiscard]] bool LatencyEnabled() const {
+        return latency_enabled;
+    }
+    /// vkLatencySleepNV on the current swapchain: `semaphore` reaches `value` when the frame
+    /// should start. False when Reflex is off or the call failed.
+    bool LatencySleep(VkSemaphore semaphore, u64 value);
+    /// vkSetLatencyMarkerNV for the frame presented with `present_id`.
+    void LatencyMarker(u64 present_id, VkLatencyMarkerNV marker);
+    /// vkGetLatencyTimingsNV: the driver's reports for recent frames.
+    [[nodiscard]] std::vector<VkLatencyTimingsFrameReportNV> LatencyTimings();
 
     VkSwapchainKHR Handle() const {
         return *swapchain;
@@ -152,6 +168,11 @@ private:
     u32 image_index{};
     u32 frame_index{};
     u64 next_present_id{};
+
+    // NVIDIA Reflex. The mutex keeps sleep and marker calls off a swapchain being replaced.
+    std::mutex latency_mutex;
+    bool latency_enabled{};
+    bool latency_logged{};
 
     VkFormat image_view_format{};
     VkExtent2D extent{};

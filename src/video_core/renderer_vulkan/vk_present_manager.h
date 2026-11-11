@@ -48,6 +48,10 @@ struct Frame {
     /// frames followed by the rendered one; 0 for a frame shown as it is.
     u32 dlssg_slot{};
     u32 dlssg_count{};
+    /// NVIDIA Reflex: the present id the renderer picked (0: the swapchain's own), and whether
+    /// this is the rendered frame its latency markers name.
+    u64 reflex_present_id{};
+    bool reflex_markers{};
 };
 
 class PresentManager {
@@ -137,7 +141,8 @@ private:
 
     // Host frame pacer, used when the device supports VK_KHR_present_wait (present thread only).
     struct PendingWait {
-        u64 id;
+        u64 id;       ///< The present id to wait for
+        u64 pacer_id; ///< What the host pacer calls it (the same id without Reflex)
         VkSwapchainKHR swapchain;
         std::chrono::steady_clock::time_point submitted;
     };
@@ -149,6 +154,7 @@ private:
     bool present_wait_enabled{};
     HostPacer pacer;
     u64 last_present_id{};
+    u64 pacer_sequence{}; ///< With Reflex: consecutive ids for the host pacer (Reflex's skip)
     std::mutex present_wait_mutex; ///< Held while waiting on a swapchain; recreation takes it
     std::mutex wait_queue_mutex;
     std::condition_variable_any wait_queue_cv;

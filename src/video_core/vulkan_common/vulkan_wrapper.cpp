@@ -240,6 +240,10 @@ void Load(VkDevice device, DeviceDispatch& dld) noexcept {
     X(vkGetQueryPoolResults);
     X(vkGetPipelineExecutablePropertiesKHR);
     X(vkWaitForPresentKHR);
+    X(vkSetLatencySleepModeNV);
+    X(vkLatencySleepNV);
+    X(vkSetLatencyMarkerNV);
+    X(vkGetLatencyTimingsNV);
     X(vkGetPipelineExecutableStatisticsKHR);
     X(vkGetSemaphoreCounterValue);
     X(vkMapMemory);

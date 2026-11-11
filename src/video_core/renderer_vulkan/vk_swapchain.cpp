@@ -18,6 +18,7 @@
 #include "common/settings_enums.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_swapchain.h"
+#include "video_core/vulkan_common/reflex_mode.h"
 #include "video_core/vulkan_common/vk_enum_string_helper.h"
 #include "video_core/vulkan_common/vulkan_device.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
@@ -137,6 +138,7 @@ void Swapchain::Create(
     u32 width_,
     u32 height_)
 {
+    std::scoped_lock latency_lock{latency_mutex};
     is_outdated = false;
     is_suboptimal = false;
     width = width_;
@@ -230,11 +232,26 @@ bool Swapchain::AcquireNextImage(bool may_flush) {
     return false;
 }
 
-u64 Swapchain::Present(VkSemaphore render_semaphore) {
+u64 Swapchain::Present(VkSemaphore render_semaphore, u64 reflex_present_id, bool reflex_markers) {
     const auto present_queue{device.GetPresentQueue()};
     // Ids for vkWaitForPresentKHR (the host frame pacer). They only have to increase per
-    // swapchain, so one counter serves every swapchain this object creates.
-    const u64 present_id = device.IsKhrPresentWaitSupported() ? ++next_present_id : 0;
+    // swapchain, so one counter serves every swapchain this object creates. With NVIDIA Reflex
+    // the renderer picks them (its markers name the same id).
+    u64 present_id = 0;
+    if (latency_enabled && reflex_present_id > next_present_id) {
+        present_id = next_present_id = reflex_present_id;
+    } else if (device.IsKhrPresentWaitSupported() || latency_enabled) {
+        present_id = ++next_present_id;
+        reflex_markers = false;
+    }
+    if (reflex_markers) {
+        LatencyMarker(present_id, VK_LATENCY_MARKER_PRESENT_START_NV);
+    }
+    const auto end_marker = [&] {
+        if (reflex_markers) {
+            LatencyMarker(present_id, VK_LATENCY_MARKER_PRESENT_END_NV);
+        }
+    };
     const VkPresentIdKHR present_id_info{
         .sType = VK_STRUCTURE_TYPE_PRESENT_ID_KHR,
         .pNext = nullptr,
@@ -271,11 +288,65 @@ u64 Swapchain::Present(VkSemaphore render_semaphore) {
         LOG_CRITICAL(Render_Vulkan, "Failed to present with error {}", string_VkResult(result));
         break;
     }
+    end_marker();
     ++frame_index;
     if (frame_index >= image_count) {
         frame_index = 0;
     }
     return queued ? present_id : 0;
+}
+
+bool Swapchain::LatencySleep(VkSemaphore semaphore, u64 value) {
+    std::scoped_lock lock{latency_mutex};
+    if (!latency_enabled || !swapchain) {
+        return false;
+    }
+    const VkLatencySleepInfoNV info{
+        .sType = VK_STRUCTURE_TYPE_LATENCY_SLEEP_INFO_NV,
+        .pNext = nullptr,
+        .signalSemaphore = semaphore,
+        .value = value,
+    };
+    return device.GetDispatchLoader().vkLatencySleepNV(*device.GetLogical(), *swapchain, &info) ==
+           VK_SUCCESS;
+}
+
+void Swapchain::LatencyMarker(u64 present_id, VkLatencyMarkerNV marker) {
+    std::scoped_lock lock{latency_mutex};
+    if (!latency_enabled || !swapchain || present_id == 0) {
+        return;
+    }
+    const VkSetLatencyMarkerInfoNV info{
+        .sType = VK_STRUCTURE_TYPE_SET_LATENCY_MARKER_INFO_NV,
+        .pNext = nullptr,
+        .presentID = present_id,
+        .marker = marker,
+    };
+    device.GetDispatchLoader().vkSetLatencyMarkerNV(*device.GetLogical(), *swapchain, &info);
+}
+
+std::vector<VkLatencyTimingsFrameReportNV> Swapchain::LatencyTimings() {
+    std::scoped_lock lock{latency_mutex};
+    const auto& dld = device.GetDispatchLoader();
+    if (!latency_enabled || !swapchain || !dld.vkGetLatencyTimingsNV) {
+        return {};
+    }
+    VkGetLatencyMarkerInfoNV info{
+        .sType = VK_STRUCTURE_TYPE_GET_LATENCY_MARKER_INFO_NV,
+        .pNext = nullptr,
+        .timingCount = 0,
+        .pTimings = nullptr,
+    };
+    dld.vkGetLatencyTimingsNV(*device.GetLogical(), *swapchain, &info);
+    std::vector<VkLatencyTimingsFrameReportNV> reports(info.timingCount);
+    for (auto& report : reports) {
+        report = {};
+        report.sType = VK_STRUCTURE_TYPE_LATENCY_TIMINGS_FRAME_REPORT_NV;
+    }
+    info.pTimings = reports.data();
+    dld.vkGetLatencyTimingsNV(*device.GetLogical(), *swapchain, &info);
+    reports.resize(std::min<size_t>(reports.size(), info.timingCount));
+    return reports;
 }
 
 void Swapchain::CreateSwapchain(const VkSurfaceCapabilitiesKHR& capabilities) {
@@ -360,6 +431,28 @@ void Swapchain::CreateSwapchain(const VkSurfaceCapabilitiesKHR& capabilities) {
         format_list.pNext = std::exchange(swapchain_ci.pNext, &format_list);
         swapchain_ci.flags |= VK_SWAPCHAIN_CREATE_MUTABLE_FORMAT_BIT_KHR;
     }
+    // NVIDIA Reflex: latency mode is chosen when the swapchain is created.
+    const auto& dld = device.GetDispatchLoader();
+    const Settings::NvidiaReflex reflex = RequestedReflexMode();
+    const bool reflex_usable = reflex != Settings::NvidiaReflex::Off &&
+                               device.IsNvLowLatency2Enabled() && device.IsKhrPresentIdSupported() &&
+                               dld.vkSetLatencySleepModeNV && dld.vkLatencySleepNV &&
+                               dld.vkSetLatencyMarkerNV;
+    if (reflex != Settings::NvidiaReflex::Off && !reflex_usable && !latency_logged) {
+        LOG_WARNING(Render_Vulkan, "Reflex: off for this session ({})",
+                    !device.IsNvLowLatency2Enabled() ? "VK_NV_low_latency2 missing"
+                    : !device.IsKhrPresentIdSupported() ? "VK_KHR_present_id missing"
+                                                        : "VK_NV_low_latency2 functions missing");
+        latency_logged = true;
+    }
+    VkSwapchainLatencyCreateInfoNV latency_ci{
+        .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_LATENCY_CREATE_INFO_NV,
+        .pNext = nullptr,
+        .latencyModeEnable = VK_TRUE,
+    };
+    if (reflex_usable) {
+        latency_ci.pNext = std::exchange(swapchain_ci.pNext, &latency_ci);
+    }
     // Request the size again to reduce the possibility of a TOCTOU race condition.
     const auto updated_capabilities = physical_device.GetSurfaceCapabilitiesKHR(VkSurfaceKHR(surface));
     swapchain_ci.imageExtent = ChooseSwapExtent(updated_capabilities, width, height);
@@ -367,6 +460,30 @@ void Swapchain::CreateSwapchain(const VkSurfaceCapabilitiesKHR& capabilities) {
     swapchain = device.GetLogical().CreateSwapchainKHR(swapchain_ci);
 
     extent = swapchain_ci.imageExtent;
+
+    latency_enabled = false;
+    if (reflex_usable) {
+        const VkLatencySleepModeInfoNV sleep_mode{
+            .sType = VK_STRUCTURE_TYPE_LATENCY_SLEEP_MODE_INFO_NV,
+            .pNext = nullptr,
+            .lowLatencyMode = VK_TRUE,
+            .lowLatencyBoost = reflex == Settings::NvidiaReflex::Boost ? VK_TRUE : VK_FALSE,
+            .minimumIntervalUs = 0,
+        };
+        const VkResult result =
+            dld.vkSetLatencySleepModeNV(*device.GetLogical(), *swapchain, &sleep_mode);
+        latency_enabled = result == VK_SUCCESS;
+        if (!latency_logged || !latency_enabled) {
+            if (latency_enabled) {
+                LOG_INFO(Render_Vulkan, "Reflex: sleep mode set (low latency on, boost {})",
+                         sleep_mode.lowLatencyBoost ? "on" : "off");
+            } else {
+                LOG_WARNING(Render_Vulkan, "Reflex: vkSetLatencySleepModeNV failed ({}); off",
+                            string_VkResult(result));
+            }
+            latency_logged = true;
+        }
+    }
 
     images = swapchain.GetImages();
     image_count = static_cast<u32>(images.size());
