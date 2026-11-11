@@ -559,6 +559,9 @@ bool Feature::Evaluate(VkCommandBuffer command, const NvidiaDlssInputs& in,
 }
 namespace {
 struct FrameGenConfig {
+    // width/height: the backbuffer subrect DLSS-G works on. NGX requires the create-time size to
+    // equal the backbuffer subrect size (DLSS-FG guide, "Backbuffer Subrects"), not the size of
+    // the whole backbuffer texture, or every evaluate fails with InvalidParameter.
     u32 width, height, format, render_width, render_height;
     bool operator==(const FrameGenConfig&) const = default;
 };
@@ -597,7 +600,9 @@ struct FrameGenFeature::State {
     NVSDK_NGX_Parameter* parameters{};
     std::optional<FrameGenConfig> config;
     NVSDK_NGX_Result result{};
+    NVSDK_NGX_Result create_result{};
     bool just_created{};
+    bool create_failed{};
     void Release() {
         if (handle) NVSDK_NGX_VULKAN_ReleaseFeature(handle);
         if (parameters) NVSDK_NGX_VULKAN_DestroyParameters(parameters);
@@ -610,6 +615,8 @@ FrameGenFeature::FrameGenFeature() : state{std::make_unique<State>()} {}
 FrameGenFeature::~FrameGenFeature() { state->Release(); }
 u32 FrameGenFeature::LastResult() const { return static_cast<u32>(state->result); }
 bool FrameGenFeature::JustCreated() const { return state->just_created; }
+u32 FrameGenFeature::CreateResult() const { return static_cast<u32>(state->create_result); }
+bool FrameGenFeature::CreateFailed() const { return state->create_failed; }
 void FrameGenFeature::Release() { state->Release(); }
 
 bool FrameGenFeature::Evaluate(VkCommandBuffer command, const FrameGenInputs& in) {
@@ -618,12 +625,18 @@ bool FrameGenFeature::Evaluate(VkCommandBuffer command, const FrameGenInputs& in
         !in.render_size.width || !in.render_size.height) {
         return false;
     }
-    const FrameGenConfig config{in.backbuffer_size.width, in.backbuffer_size.height,
-                                static_cast<u32>(in.backbuffer.format), in.render_size.width,
-                                in.render_size.height};
+    const bool subrect = UseSubrect() && in.subrect_size.width && in.subrect_size.height;
+    const NVSDK_NGX_Coordinates base{subrect ? static_cast<u32>(in.subrect_offset.x) : 0u,
+                                     subrect ? static_cast<u32>(in.subrect_offset.y) : 0u};
+    const NVSDK_NGX_Dimensions size{subrect ? in.subrect_size.width : in.backbuffer_size.width,
+                                    subrect ? in.subrect_size.height : in.backbuffer_size.height};
+    const FrameGenConfig config{size.Width, size.Height, static_cast<u32>(in.backbuffer.format),
+                                in.render_size.width, in.render_size.height};
     if (!state->config || *state->config != config) {
         state->Release();
+        state->create_failed = true;
         state->result = NVSDK_NGX_VULKAN_AllocateParameters(&state->parameters);
+        state->create_result = state->result;
         if (NVSDK_NGX_FAILED(state->result)) return false;
         NVSDK_NGX_DLSSG_Create_Params create{};
         create.Width = config.width;
@@ -632,12 +645,21 @@ bool FrameGenFeature::Evaluate(VkCommandBuffer command, const FrameGenInputs& in
         create.RenderWidth = config.render_width;
         create.RenderHeight = config.render_height;
         create.DynamicResolutionScaling = false;
+        // The SDK helper only sets the deprecated generic Width/Height and ignores the render
+        // size; set the DLSS-G names too (the snippet prefers them).
+        state->parameters->Set(NVSDK_NGX_DLSSG_Parameter_Width, config.width);
+        state->parameters->Set(NVSDK_NGX_DLSSG_Parameter_Height, config.height);
+        state->parameters->Set("DLSSG.InternalWidth", config.render_width);
+        state->parameters->Set("DLSSG.InternalHeight", config.render_height);
+        state->parameters->Set("DLSSG.DynamicResolution", 0u);
         state->result = NGX_VK_CREATE_DLSSG(command, 1, 1, &state->handle, state->parameters, &create);
+        state->create_result = state->result;
         if (NVSDK_NGX_FAILED(state->result)) {
             state->handle = nullptr;
             return false;
         }
         state->config = config;
+        state->create_failed = false;
         state->just_created = true;
     }
     auto backbuffer = Resource(in.backbuffer, in.backbuffer_size, false);
@@ -686,11 +708,6 @@ bool FrameGenFeature::Evaluate(VkCommandBuffer command, const FrameGenInputs& in
     options.mvecsSubrectSize = {in.render_size.width, in.render_size.height};
     options.depthSubrectBase = {0, 0};
     options.depthSubrectSize = {in.render_size.width, in.render_size.height};
-    const bool subrect = UseSubrect() && in.subrect_size.width && in.subrect_size.height;
-    const NVSDK_NGX_Coordinates base{subrect ? static_cast<u32>(in.subrect_offset.x) : 0u,
-                                     subrect ? static_cast<u32>(in.subrect_offset.y) : 0u};
-    const NVSDK_NGX_Dimensions size{subrect ? in.subrect_size.width : in.backbuffer_size.width,
-                                    subrect ? in.subrect_size.height : in.backbuffer_size.height};
     options.backbufferSubrectBase = base;
     options.backbufferSubrectSize = size;
     options.outputInterpSubrectBase = base;

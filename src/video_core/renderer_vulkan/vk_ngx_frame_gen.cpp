@@ -404,12 +404,13 @@ void NgxFrameGen::GenerateInto(Frame* destination, u32 index) {
                                feature->Evaluate(*cmdbuf, inputs);
         if (feature->JustCreated()) {
             LOG_INFO(Render_Vulkan,
-                     "DLSS-G: feature created ({:#x}): {}x{} format {} from {}x{} depth and "
-                     "motion, {} generated per frame",
-                     feature->LastResult(), inputs.backbuffer_size.width,
+                     "DLSS-G: feature created ({:#x}): backbuffer {}x{} format {}, subrect {},{} "
+                     "{}x{}, from {}x{} depth and motion, {} generated per frame",
+                     feature->CreateResult(), inputs.backbuffer_size.width,
                      inputs.backbuffer_size.height, static_cast<int>(inputs.backbuffer.format),
-                     inputs.render_size.width, inputs.render_size.height,
-                     inputs.multi_frame_count);
+                     inputs.subrect_offset.x, inputs.subrect_offset.y, inputs.subrect_size.width,
+                     inputs.subrect_size.height, inputs.render_size.width,
+                     inputs.render_size.height, inputs.multi_frame_count);
         }
         if (evaluated) {
             if (evaluations_ok.fetch_add(1, std::memory_order_relaxed) == 0) {
@@ -423,11 +424,15 @@ void NgxFrameGen::GenerateInto(Frame* destination, u32 index) {
             }
         } else if (!failed.exchange(true)) {
             LOG_ERROR(Render_Vulkan,
-                      "DLSS-G: {} failed ({:#x}); frame generation is off for this session, "
-                      "frames are shown as they are",
-                      feature->JustCreated() || evaluations_ok.load() != 0 ? "evaluate"
-                                                                            : "create or evaluate",
-                      feature->LastResult());
+                      "DLSS-G: {} failed ({:#x}) at backbuffer {}x{}, subrect {},{} {}x{}, render "
+                      "{}x{}; frame generation is off for this session, frames are shown as they "
+                      "are (NGX's own reason is in ~/.cache/fritchii/ngx/nvngx_dlssg_*.log)",
+                      feature->CreateFailed() ? "feature creation" : "evaluate",
+                      feature->LastResult(), inputs.backbuffer_size.width,
+                      inputs.backbuffer_size.height, inputs.subrect_offset.x,
+                      inputs.subrect_offset.y, inputs.subrect_size.width,
+                      inputs.subrect_size.height, inputs.render_size.width,
+                      inputs.render_size.height);
         }
         // Copy the generated frame (or, after a failure, the real one) into the present frame.
         const VkImage source = evaluated ? inputs.output.image : inputs.backbuffer.image;

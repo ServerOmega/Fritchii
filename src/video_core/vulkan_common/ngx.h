@@ -84,6 +84,9 @@ public:
     [[nodiscard]] u32 LastResult() const;
     /// The last Evaluate created the feature (for the log).
     [[nodiscard]] bool JustCreated() const;
+    /// Result of the last feature creation, and whether it failed (for the log).
+    [[nodiscard]] u32 CreateResult() const;
+    [[nodiscard]] bool CreateFailed() const;
     void Release();
 private:
     struct State;
