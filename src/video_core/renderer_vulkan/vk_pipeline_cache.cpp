@@ -602,6 +602,7 @@ namespace {
 /// preparation built (fable52_answer_3: an AMD player's cache kept ~44% and nothing after a
 /// restart). Logged at boot, after a preparation and at exit.
 void LogDriverCacheFolder(const Device& device, std::string_view when) {
+#if defined(_WIN32) || (defined(__linux__) && !defined(__ANDROID__))
 #ifdef _WIN32
     const char* const local = std::getenv("LOCALAPPDATA");
     if (local == nullptr) {
@@ -618,6 +619,34 @@ void LogDriverCacheFolder(const Device& device, std::string_view when) {
     default:
         return;
     }
+#else
+    // Linux: NVIDIA's cache is $__GL_SHADER_DISK_CACHE_PATH, else $XDG_CACHE_HOME/nvidia/GLCache,
+    // else ~/.cache/nvidia/GLCache. Logged with the size settings main() gives the driver, so a
+    // preparation the driver did not keep (the folder far below its ~120k pipelines) shows here.
+    if (device.GetDriverID() != VK_DRIVER_ID_NVIDIA_PROPRIETARY) {
+        return;
+    }
+    std::filesystem::path folder;
+    if (const char* const path = std::getenv("__GL_SHADER_DISK_CACHE_PATH");
+        path != nullptr && *path != '\0') {
+        folder = path;
+    } else if (const char* const xdg = std::getenv("XDG_CACHE_HOME"); xdg != nullptr && *xdg != '\0') {
+        folder = std::filesystem::path{xdg} / "nvidia/GLCache";
+    } else if (const char* const home = std::getenv("HOME"); home != nullptr) {
+        folder = std::filesystem::path{home} / ".cache/nvidia/GLCache";
+    } else {
+        return;
+    }
+    {
+        const char* const size = std::getenv("__GL_SHADER_DISK_CACHE_SIZE");
+        const char* const skip = std::getenv("__GL_SHADER_DISK_CACHE_SKIP_CLEANUP");
+        const char* const disabled = std::getenv("__GL_SHADER_DISK_CACHE");
+        LOG_INFO(Render_Vulkan,
+                 "Driver cache settings ({}): __GL_SHADER_DISK_CACHE={} _SIZE={} _SKIP_CLEANUP={}",
+                 when, disabled ? disabled : "(unset)", size ? size : "(unset)",
+                 skip ? skip : "(unset)");
+    }
+#endif
     std::error_code ec;
     if (!std::filesystem::is_directory(folder, ec)) {
         LOG_INFO(Render_Vulkan, "Driver cache folder {} ({}): not there", folder.string(), when);

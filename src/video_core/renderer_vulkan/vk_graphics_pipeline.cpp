@@ -464,6 +464,22 @@ ConfigureFuncPtr ConfigureFunc(const std::array<bool, NUM_STAGES>& stages,
 
 std::atomic<std::chrono::nanoseconds::rep> hold_time_ns{};
 std::atomic<std::chrono::nanoseconds::rep> hold_time_total_ns{};
+
+/// EDEN_NX2_CLAIM_HELD_BUILDS (default 1): a draw held for a worker-emitted (native) pipeline
+/// whose build no worker has started yet runs that build itself instead of waiting for the
+/// FIFO pool to reach it. The VulkanWorker waits for that build either way; claiming only cuts
+/// the queue time in front of it (bursts of 100+ new pipelines kept every worker busy for
+/// seconds while held draws waited at the back). A running build is still waited for. The
+/// emission is thread-agnostic (async-native-pipelines.md: it owns its IR pools and reads no
+/// engine state), and teardown already claims queued builds the same way. 0: never claim.
+bool HeldDrawsClaimBuilds() {
+    static const bool enabled = [] {
+        const char* const value = std::getenv("EDEN_NX2_CLAIM_HELD_BUILDS");
+        return value == nullptr || value[0] != '0';
+    }();
+    return enabled;
+}
+
 } // Anonymous namespace
 
 void NoteDrawReuseProbeFrame();
@@ -1542,7 +1558,7 @@ bool GraphicsPipeline::ConfigureDraw(const RescalingPushConstant& rescaling,
         // triangles the draw then reads; both use the descriptor set committed here.
         scheduler.RequestOutsideRenderPassOperationContext();
         if (!IsBuilt()) {
-            scheduler.Record([this](vk::CommandBuffer) { build->Wait(!worker_only_build); });
+            scheduler.Record([this](vk::CommandBuffer) { build->Wait(!worker_only_build || HeldDrawsClaimBuilds()); });
         }
         // EDEN_NX2_MESH_FIRST: the task (or mesh) compute shader adds the draw's first
         // workgroup index, as the native mesh path does.
@@ -1688,7 +1704,7 @@ bool GraphicsPipeline::ConfigureDraw(const RescalingPushConstant& rescaling,
         // Wait for the pipeline to be built
         scheduler.Record([this](vk::CommandBuffer) {
             const auto begin = std::chrono::steady_clock::now();
-            build->Wait(!worker_only_build);
+            build->Wait(!worker_only_build || HeldDrawsClaimBuilds());
             const auto held = std::chrono::steady_clock::now() - begin;
             const auto held_ns =
                 std::chrono::duration_cast<std::chrono::nanoseconds>(held).count();
