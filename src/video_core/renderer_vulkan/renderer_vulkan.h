@@ -7,6 +7,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <variant>
 
@@ -17,6 +18,9 @@
 #include "video_core/renderer_vulkan/present/frame_gen.h"
 #endif
 #include "video_core/renderer_vulkan/vk_blit_screen.h"
+#ifdef EGLANTINE_NGX
+#include "video_core/renderer_vulkan/vk_ngx_frame_gen.h"
+#endif
 #include "video_core/renderer_vulkan/vk_present_manager.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
@@ -114,6 +118,10 @@ private:
     RasterizerVulkan rasterizer;
 #ifdef HAS_LSFG
     FrameGen frame_gen;
+#endif
+#ifdef EGLANTINE_NGX
+    /// DLSS Frame Generation; only exists while it is asked for and available.
+    std::optional<NgxFrameGen> ngx_frame_gen;
 #endif
     std::optional<TurboMode> turbo_mode;
 

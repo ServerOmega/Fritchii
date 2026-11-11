@@ -152,6 +152,8 @@ ENUM(AntiAliasing, None, Fxaa, Smaa);
 ENUM(OotAntiAliasing, Game, NoSharpening, Fsr3, Fsr4);
 ENUM(DlssPreset, Default, J, K, L, M);
 ENUM(NvidiaDlssQuality, Automatic, Native, Quality, Balanced, Performance, UltraPerformance);
+// NVIDIA DLSS Frame Generation through native NGX (Linux): off, or the frame rate multiplier.
+ENUM(DlssFrameGen, Off, X2, X3, X4);
 ENUM(AspectRatio, R16_9, R4_3, R21_9, R16_10, Stretch);
 ENUM(ConsoleMode, Handheld, Docked);
 ENUM(AppletMode, HLE, LLE, Disabled);

@@ -235,7 +235,14 @@ void ConfigureGraphics::Setup(const ConfigurationShared::Builder& builder) {
         // Only builds with an NVIDIA DLSS backend can use it.
         if (setting->Id() == Settings::values.nvidia_dlss.Id() ||
             setting->Id() == Settings::values.nvidia_dlss_quality.Id() ||
-            setting->Id() == Settings::values.nvidia_dlss_preset.Id()) {
+            setting->Id() == Settings::values.nvidia_dlss_preset.Id() ||
+            setting->Id() == Settings::values.nvidia_dlss_frame_gen.Id()) {
+            continue;
+        }
+#endif
+#ifndef EGLANTINE_NGX
+        // DLSS Frame Generation runs on the native NGX backend only.
+        if (setting->Id() == Settings::values.nvidia_dlss_frame_gen.Id()) {
             continue;
         }
 #endif
@@ -267,7 +274,8 @@ void ConfigureGraphics::Setup(const ConfigurationShared::Builder& builder) {
         }
 #endif
         if (nvidia_dlss_checkbox && (setting->Id() == Settings::values.nvidia_dlss_quality.Id() ||
-                                     setting->Id() == Settings::values.nvidia_dlss_preset.Id())) {
+                                     setting->Id() == Settings::values.nvidia_dlss_preset.Id() ||
+                                     setting->Id() == Settings::values.nvidia_dlss_frame_gen.Id())) {
             widget->setVisible(nvidia_dlss_checkbox->isChecked());
             connect(nvidia_dlss_checkbox, &QCheckBox::toggled, widget, &QWidget::setVisible);
         }

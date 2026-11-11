@@ -180,6 +180,14 @@ std::unique_ptr<TranslationMap> InitializeTranslations(QObject* parent) {
               "remains active.\nIn The Legend of Zelda: Ocarina of Time it replaces the game's "
               "upscaler at 1x resolution scale.\nTakes effect when a game starts."));
 #endif
+    INSERT(Settings, nvidia_dlss_frame_gen, tr("DLSS Frame Generation (experimental):"),
+           tr("Native NVIDIA DLSS Frame Generation (Linux, GeForce RTX 40 and 50 series). Adds "
+              "generated frames between the frames NVIDIA DLSS upscales: 2x adds one, 3x and 4x "
+              "(RTX 50 series) add two or three.\nNeeds NVIDIA DLSS on and NVIDIA's "
+              "libnvidia-ngx-dlssg.so (from the DLSS SDK) next to libnvidia-ngx-dlss.so. Frames "
+              "without a DLSS evaluation (menus, movies) are shown as they are.\nWorks best with "
+              "VSync off or Mailbox and asynchronous presentation on.\nTakes effect when a game "
+              "starts."));
     INSERT(Settings, nvidia_dlss_quality, tr("DLSS quality:"),
            tr("Automatic picks the mode from the game's own resolution. Native (DLAA) keeps the "
               "game's resolution and only smooths it. Other modes apply when they fit the game's "
@@ -619,6 +627,13 @@ std::unique_ptr<ComboboxTranslationMap> ComboboxEnumeration(QObject* parent) {
                               PAIR(AntiAliasing, None, tr("None")),
                               PAIR(AntiAliasing, Fxaa, tr("FXAA")),
                               PAIR(AntiAliasing, Smaa, tr("SMAA")),
+                          }});
+    translations->insert({Settings::EnumMetadata<Settings::DlssFrameGen>::Index(),
+                          {
+                              PAIR(DlssFrameGen, Off, tr("Off")),
+                              PAIR(DlssFrameGen, X2, tr("2x")),
+                              PAIR(DlssFrameGen, X3, tr("3x (RTX 50 series)")),
+                              PAIR(DlssFrameGen, X4, tr("4x (RTX 50 series)")),
                           }});
     translations->insert({Settings::EnumMetadata<Settings::DlssPreset>::Index(),
                           {

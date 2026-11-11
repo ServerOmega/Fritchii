@@ -20,6 +20,9 @@
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_swapchain.h"
 #include "video_core/vulkan_common/vulkan_device.h"
+#ifdef EGLANTINE_NGX
+#include "video_core/vulkan_common/ngx.h"
+#endif
 #include "video_core/vulkan_common/vulkan_surface.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
 
@@ -207,6 +210,8 @@ Frame* PresentManager::GetRenderFrame() {
     // Wait for the presentation to be finished so all frame resources are free
     frame->present_done.Wait();
     frame->present_done.Reset();
+    frame->dlssg_slot = 0;
+    frame->dlssg_count = 0;
 
     return frame;
 }
@@ -370,7 +375,12 @@ void PresentManager::PresentThread(std::stop_token token) {
         }
         if (!token.stop_requested()) {
             bool held = false;
-            if (present_wait_enabled) {
+            if (Frame* const next = present_queue.front(); next->dlssg_count != 0) {
+                // Generated frames are paced by their group, not by the host pacer.
+                lock.unlock();
+                PaceGeneratedFrame(next, token);
+                lock.lock();
+            } else if (present_wait_enabled) {
                 // Only this thread pops the queue: the frame stays at its front, and WaitPresent
                 // keeps waiting while it is held.
                 Frame* const next = present_queue.front();
@@ -508,6 +518,57 @@ bool PresentManager::PaceFrame(Frame* frame, std::stop_token token) {
     return true;
 }
 
+void PresentManager::PaceGeneratedFrame(Frame* frame, std::stop_token token) {
+    using Clock = std::chrono::steady_clock;
+    if (frame->render_tick != 0) {
+        Common::Nx2Timeline::Span span{"present: wait for frame render"};
+        scheduler.GetMasterSemaphore().Wait(frame->render_tick);
+    }
+    const auto now = Clock::now();
+    if (frame->dlssg_slot <= 1) {
+        // A new group: the time since the previous one is how long a rendered frame takes.
+        if (dlssg_group_start != Clock::time_point{}) {
+            const auto gap = now - dlssg_group_start;
+            if (gap < std::chrono::milliseconds{250}) {
+                dlssg_interval = dlssg_interval.count() == 0 ? gap : (dlssg_interval * 7 + gap) / 8;
+            } else {
+                dlssg_interval = {};
+            }
+        }
+        dlssg_group_start = now;
+        if (++dlssg_groups % 600 == 1) {
+            LOG_INFO(Render_Vulkan,
+                     "DLSS-G pacing: {} frames per group, {:.2f} ms between rendered frames, "
+                     "{} frames late so far",
+                     frame->dlssg_count,
+                     std::chrono::duration<double, std::milli>(dlssg_interval).count(),
+                     dlssg_late);
+        }
+        return;
+    }
+    if (dlssg_interval.count() == 0 || frame->dlssg_count == 0) {
+        return;
+    }
+    // A little under even spacing, so a group never pushes into the next one.
+    const auto offset = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        dlssg_interval * 0.97 * (frame->dlssg_slot - 1) / frame->dlssg_count);
+    const auto target = dlssg_group_start + std::min<std::chrono::nanoseconds>(
+                                                offset, std::chrono::milliseconds{50});
+    if (target <= now) {
+        ++dlssg_late;
+        return;
+    }
+    Common::Nx2Timeline::Span span{"present: DLSS-G pacing hold"};
+    for (auto t = now; t < target && !token.stop_requested(); t = Clock::now()) {
+        const auto left = target - t;
+        if (left > std::chrono::microseconds{1500}) {
+            std::this_thread::sleep_for(left - std::chrono::microseconds{1000});
+        } else {
+            std::this_thread::yield();
+        }
+    }
+}
+
 void PresentManager::PresentWaitThread(std::stop_token token) {
     Common::SetCurrentThreadName("VulkanPresentWait");
     Common::SetCurrentThreadPriority(Common::ThreadPriority::High);
@@ -601,6 +662,14 @@ void PresentManager::SetImageCount() {
                            MAX_FRAMES_IN_FLIGHT);
 #else
     image_count = std::min<size_t>(swapchain.GetImageCount(), MAX_FRAMES_IN_FLIGHT);
+#endif
+#ifdef EGLANTINE_NGX
+    // DLSS Frame Generation queues the generated frames and the rendered one together, with room
+    // for the next group to be recorded while one is paced.
+    if (const u32 multiplier = Ngx::FrameGenMultiplier(); multiplier > 1) {
+        image_count = std::clamp<size_t>(2 * multiplier + 1, image_count.load(),
+                                         MAX_FRAMES_IN_FLIGHT);
+    }
 #endif
     swapchain_image_count = swapchain.GetImageCount();
     swapchain_image_format = swapchain.GetImageFormat();

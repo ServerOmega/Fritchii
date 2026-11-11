@@ -44,6 +44,10 @@ struct Frame {
     bool storage_capable{};
     u64 render_tick{};                               ///< Scheduler tick that renders the frame
     std::chrono::steady_clock::time_point queued_at; ///< When it reached the present queue
+    /// DLSS Frame Generation: this frame's place (1 to dlssg_count) in its group of generated
+    /// frames followed by the rendered one; 0 for a frame shown as it is.
+    u32 dlssg_slot{};
+    u32 dlssg_count{};
 };
 
 class PresentManager {
@@ -84,6 +88,10 @@ private:
     /// Host frame pacer (vk_host_pacer.h): collects when earlier frames were shown and holds
     /// `frame` until its target. Returns whether it was held.
     bool PaceFrame(Frame* frame, std::stop_token token);
+
+    /// DLSS Frame Generation: spreads a group's frames evenly over the time between rendered
+    /// frames. The first frame of a group goes out as soon as it is rendered.
+    void PaceGeneratedFrame(Frame* frame, std::stop_token token);
 
     /// Waits for each present id until it is shown (VK_KHR_present_wait).
     void PresentWaitThread(std::stop_token token);
@@ -149,6 +157,12 @@ private:
     std::condition_variable shown_cv;
     std::vector<ShownReport> shown_reports;
     std::jthread present_wait_thread;
+
+    // DLSS Frame Generation pacing (present thread only).
+    std::chrono::steady_clock::time_point dlssg_group_start{};
+    std::chrono::nanoseconds dlssg_interval{};
+    u64 dlssg_groups{};
+    u64 dlssg_late{};
 };
 
 } // namespace Vulkan

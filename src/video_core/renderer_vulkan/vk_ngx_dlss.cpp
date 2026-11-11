@@ -9,6 +9,7 @@
 #include "common/settings.h"
 #include "video_core/dlss_mode.h"
 #include "video_core/renderer_base.h"
+#include "video_core/renderer_vulkan/vk_ngx_frame_gen.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_streamline_dlss.h"
 #include "video_core/vulkan_common/ngx.h"
@@ -187,8 +188,14 @@ bool NvidiaDlssUpscaler::Upscale(const Inputs& frame) {
     depth_inverted_input = in.depth_inverted;
     quality_mode = settings.quality;
     model_preset = settings.preset;
+    // DLSS Frame Generation reads this frame's depth and motion after the game has moved on.
+    NvidiaDlssInputs frame_gen_inputs = in;
+    frame_gen_inputs.reset |= options_changed;
+    NgxFrameGen* const frame_gen = NgxFrameGen::Current();
+    const NgxFrameGen::Capture* const frame_gen_capture =
+        frame_gen ? frame_gen->PrepareCapture(frame_gen_inputs) : nullptr;
     scheduler.RequestOutsideRenderPassOperationContext();
-    scheduler.Record([this, in, options_changed, requested = settings.quality,
+    scheduler.Record([this, in, options_changed, requested = settings.quality, frame_gen_capture,
                       preset_setting = settings.preset, index = frame_index++,
                       output_image_handle = *output_image,
                       output_view_handle = *output_view](vk::CommandBuffer cmdbuf) {
@@ -305,6 +312,9 @@ bool NvidiaDlssUpscaler::Upscale(const Inputs& frame) {
         evaluation.reset |= options_changed;
         const bool evaluated =
             !failed && selected && feature->Evaluate(*cmdbuf, evaluation, evaluated_mode, output);
+        if (evaluated && frame_gen_capture) {
+            NgxFrameGen::RecordCapture(cmdbuf, in, *frame_gen_capture);
+        }
         cmdbuf.PipelineBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                                VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, output_written, {}, to_general);
         if (!evaluated) {

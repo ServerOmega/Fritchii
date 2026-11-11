@@ -1274,6 +1274,32 @@ bool Device::GetSuitability(bool requires_swapchain) {
         streamline_extensions = all;
         LOG_INFO(Render_Vulkan, "NVIDIA DLSS device extensions: {} ({})",
                  all ? "enabled" : "unavailable", names.empty() ? "none" : names);
+#ifdef EGLANTINE_NGX
+        // DLSS Frame Generation's extensions, only where the device has them all (else frame
+        // generation is off and DLSS keeps running).
+        if (all) {
+            const std::vector<std::string> fg_wanted =
+                Ngx::FrameGenDeviceExtensions(instance, physical);
+            std::string fg_names;
+            std::string fg_missing;
+            for (const std::string& name : fg_wanted) {
+                fg_names += (fg_names.empty() ? "" : ", ") + name;
+                if (!supported_extensions.contains(name)) {
+                    fg_missing += (fg_missing.empty() ? "" : ", ") + name;
+                }
+            }
+            if (!fg_missing.empty()) {
+                LOG_WARNING(Render_Vulkan, "DLSS-G: device lacks {}", fg_missing);
+                Ngx::DropFrameGen("missing device extensions");
+            } else if (Ngx::FrameGenRequested() > 1) {
+                for (const std::string& name : fg_wanted) {
+                    loaded_extensions.insert(name);
+                }
+                LOG_INFO(Render_Vulkan, "DLSS-G: device extensions: {}",
+                         fg_names.empty() ? "none" : fg_names);
+            }
+        }
+#endif
     }
 #endif
 

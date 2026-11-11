@@ -52,6 +52,7 @@ SWITCHABLE(AntiAliasing, false);
 SWITCHABLE(OotAntiAliasing, false);
 SWITCHABLE(DlssPreset, false);
 SWITCHABLE(NvidiaDlssQuality, false);
+SWITCHABLE(DlssFrameGen, false);
 SWITCHABLE(OotRefreshCap, false);
 SWITCHABLE(OotMovieUpscale, false);
 SWITCHABLE(AspectRatio, true);

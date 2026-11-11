@@ -654,7 +654,9 @@ if (ENABLE_NVIDIA_DLSS_NGX)
     target_sources(video_core PRIVATE
         vulkan_common/ngx.cpp
         vulkan_common/ngx_runtime.cpp
-        renderer_vulkan/vk_ngx_dlss.cpp)
+        renderer_vulkan/vk_ngx_dlss.cpp
+        renderer_vulkan/vk_ngx_frame_gen.cpp
+        renderer_vulkan/vk_ngx_frame_gen.h)
     target_include_directories(video_core SYSTEM PRIVATE "${NVIDIA_NGX_SDK}/include")
     target_link_libraries(video_core PRIVATE
         "${NVIDIA_NGX_SDK}/lib/Linux_x86_64/libnvsdk_ngx.a" ${CMAKE_DL_LIBS})

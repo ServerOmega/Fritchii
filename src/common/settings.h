@@ -67,6 +67,7 @@ SWITCHABLE(AntiAliasing, false);
 SWITCHABLE(OotAntiAliasing, false);
 SWITCHABLE(DlssPreset, false);
 SWITCHABLE(NvidiaDlssQuality, false);
+SWITCHABLE(DlssFrameGen, false);
 SWITCHABLE(OotRefreshCap, false);
 SWITCHABLE(OotMovieUpscale, false);
 SWITCHABLE(AspectRatio, true);
@@ -417,6 +418,16 @@ struct Values {
                                                    Specialization::Default,
                                                    true,
                                                    true};
+    // NVIDIA DLSS Frame Generation (native NGX backend, Linux): generated frames between the
+    // frames DLSS upscales, presented by Fritchii's own pacer. Off by default; needs NVIDIA DLSS
+    // on and libnvidia-ngx-dlssg.so. EDEN_DLSSG=0|2|3|4 overrides it. Takes effect at game start.
+    SwitchableSetting<DlssFrameGen> nvidia_dlss_frame_gen{linkage,
+                                                          DlssFrameGen::Off,
+                                                          "nvidia_dlss_frame_gen",
+                                                          Category::Renderer,
+                                                          Specialization::Default,
+                                                          true,
+                                                          false};
     SwitchableSetting<AspectRatio, true> aspect_ratio{linkage,
                                                       AspectRatio::R16_9,
                                                       "aspect_ratio",
