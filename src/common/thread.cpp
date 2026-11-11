@@ -24,6 +24,7 @@
 #include "common/assert.h"
 #include "common/thread.h"
 #include "common/nx2_hitch.h"
+#include "common/settings.h"
 #include "common/thread_pinning.h"
 #ifdef __APPLE__
 #include <mach/mach.h>
@@ -839,14 +840,30 @@ void SetCurrentThreadToPerformanceCores() {
 
 void PinCurrentThread(PinnedRole role, int guest_core) {
 #if defined(_WIN32) || (defined(__linux__) && !defined(__ANDROID__))
-    // Off with EDEN_NX2_PIN_THREADS=0, forced with 1, otherwise on with enough performance cores
-    // (ThreadPinning::MakePlan): the split's back did about 8% more draws a second at Lake Hylia
-    // (Ryzen 7 7800X3D), its worst window 29 -> 54 fps, once no SMT sibling shared its core.
+    // Off with EDEN_NX2_PIN_THREADS=0, forced with 1; otherwise the Graphics setting (on by
+    // default) uses Auto: on with enough performance cores (ThreadPinning::MakePlan). The split's
+    // back did about 8% more draws a second at Lake Hylia (Ryzen 7 7800X3D), its worst window
+    // 29 -> 54 fps, once no SMT sibling shared its core.
     static const ThreadPinning::Plan plan = [] {
-        const auto mode = ThreadPinning::ParseMode(std::getenv("EDEN_NX2_PIN_THREADS"));
+        const char* env = std::getenv("EDEN_NX2_PIN_THREADS");
+        ThreadPinning::Mode mode;
+        std::string source;
+        if (env != nullptr && env[0] != '\0') {
+            mode = ThreadPinning::ParseMode(env);
+            source = mode == ThreadPinning::Mode::Off   ? "EDEN_NX2_PIN_THREADS=0"
+                     : mode == ThreadPinning::Mode::Force ? "EDEN_NX2_PIN_THREADS=1"
+                                                          : "EDEN_NX2_PIN_THREADS";
+        } else if (!Settings::values.thread_pinning.GetValue()) {
+            mode = ThreadPinning::Mode::Off;
+            source = "Settings";
+        } else {
+            mode = ThreadPinning::Mode::Auto;
+            source = "Settings";
+        }
         const ThreadPinning::Topology topology = ReadPinningTopology();
         const ThreadPinning::Plan result = ThreadPinning::MakePlan(topology, mode);
-        LOG_INFO(Common, "Thread pinning: {}", ThreadPinning::Describe(result, topology, mode));
+        LOG_INFO(Common, "Thread pinning: {}",
+                 ThreadPinning::Describe(result, topology, mode, source));
         return result;
     }();
     u64 mask{};

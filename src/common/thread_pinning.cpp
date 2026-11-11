@@ -119,7 +119,8 @@ Plan MakePlan(const Topology& topology, Mode mode) {
     return none;
 }
 
-std::string Describe(const Plan& plan, const Topology& topology, Mode mode) {
+std::string Describe(const Plan& plan, const Topology& topology, Mode mode,
+                     std::string_view source) {
     std::string cpu = fmt::format("{} performance and {} efficiency cores, {} L3 cache{}",
                                   plan.performance_cores, plan.efficiency_cores, plan.l3_caches,
                                   plan.l3_caches == 1 ? "" : "s");
@@ -131,21 +132,30 @@ std::string Describe(const Plan& plan, const Topology& topology, Mode mode) {
         cpu += fmt::format(", {} of {} logical processors outside group 0 not pinned",
                            topology.logical_processors - group0, topology.logical_processors);
     }
+    const std::string why =
+        source.empty()
+            ? (mode == Mode::Off
+                   ? std::string{"EDEN_NX2_PIN_THREADS=0"}
+                   : mode == Mode::Force ? std::string{"EDEN_NX2_PIN_THREADS=1"}
+                                         : std::string{"Settings"})
+            : std::string{source};
     if (mode == Mode::Off) {
-        return fmt::format("off (EDEN_NX2_PIN_THREADS=0); {}", cpu);
+        return fmt::format("disabled ({}); {}", why, cpu);
     }
     if (!plan.Enabled()) {
-        return fmt::format("not pinned ({}); needs {} performance cores leaving {} logical "
-                           "processors to the guest cores, EDEN_NX2_PIN_THREADS=1 forces from {}",
-                           cpu, MinAutoCores, MinAutoGuestProcessors, MinForcedCores);
+        return fmt::format("disabled (not enough cores, {}); needs {} performance cores leaving "
+                           "{} logical processors to the guest cores, EDEN_NX2_PIN_THREADS=1 "
+                           "forces from {}; {}",
+                           why, MinAutoCores, MinAutoGuestProcessors, MinForcedCores, cpu);
     }
     const std::string where =
         plan.l3_caches >= 2
             ? (plan.l3_size != 0 ? fmt::format(" in one {} MiB L3", plan.l3_size >> 20)
                                  : std::string{" across L3 caches"})
             : std::string{};
-    return fmt::format("GPU front {:#x}, GPU back {:#x}, guest cores {:#x} (on {} cores{}); {}",
-                       plan.front, plan.back, plan.guest, plan.chosen_cores, where, cpu);
+    return fmt::format("enabled ({}), GPU front {:#x}, GPU back {:#x}, guest cores {:#x} "
+                       "(on {} cores{}); {}",
+                       why, plan.front, plan.back, plan.guest, plan.chosen_cores, where, cpu);
 }
 
 u64 ParseCpuMap(std::string_view text) {

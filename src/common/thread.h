@@ -111,7 +111,8 @@ void SetCurrentThreadToPerformanceCores();
 
 /// Windows, Linux: one physical performance core each for the split GPU thread's halves and the
 /// guest cores kept off them, so an SMT sibling never shares the GPU threads' core. See
-/// ThreadPinning::MakePlan for when it applies; EDEN_NX2_PIN_THREADS=0 turns it off, 1 forces it.
+/// ThreadPinning::MakePlan for when it applies. Graphics > GPU thread pinning (on by default);
+/// EDEN_NX2_PIN_THREADS=0 turns it off, 1 forces it, and either overrides the setting.
 enum class PinnedRole : u32 { GpuFront, GpuBack, GuestCore };
 /// `guest_core`: the guest core index for GuestCore. With EDEN_NX2_GUEST_PIN_EACH=1 each guest core
 /// gets one physical core of the guest set to itself (its SMT siblings) instead of the whole set.

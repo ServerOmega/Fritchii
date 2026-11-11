@@ -69,7 +69,7 @@ Fritchii v5.7.
 - **Extended Dynamic State is set back to EDS2 once.** Players who set it to Disabled or EDS3 (often an old AMD crash tip) had "Preparing shaders" skip almost every shader. EDS2 is what the shaders are recorded with, and the AMD crash that tip avoided is fixed since v5.3. You can still change it afterwards.
 - **NVIDIA: the shader cache size is set by Fritchii itself.** Newer drivers no longer show "Shader Cache Size" in the NVIDIA Control Panel. Fritchii now tells the driver to keep a large cache for Fritchii only, nothing else on your PC changes.
 - **DLSS fixes:** the "Use NVIDIA DLSS" checkbox could be overridden by an old per-game value and show unchecked in game; it's a global setting now. New **DLSS preset** option (Default, J, K recommended, L, M) in Graphics.
-- Graphics > Extensions now says it: GPU thread pinning is built in and on automatically.
+- Graphics > **GPU thread pinning** is on by default and can be turned off. `EDEN_NX2_PIN_THREADS=0` turns it off and `1` forces it on, overriding the setting.
 - The old "Prepare Shaders" window says it's the optional quick warm-up (the full preparation runs by itself when you start the game).
 
 ### In v5.4

@@ -236,17 +236,19 @@ TEST_CASE("Thread pinning: nothing reported", "[common][thread_pinning]") {
 TEST_CASE("Thread pinning: the plan is described", "[common][thread_pinning]") {
     const Topology cpu = Uniform(8, 2, 96 * MiB);
     CHECK(Describe(MakePlan(cpu, Mode::Auto), cpu, Mode::Auto) ==
-          "GPU front 0xc, GPU back 0x30, guest cores 0xffc3 (on 8 cores); 8 performance and 0 "
-          "efficiency cores, 1 L3 cache");
+          "enabled (Settings), GPU front 0xc, GPU back 0x30, guest cores 0xffc3 (on 8 cores); 8 "
+          "performance and 0 efficiency cores, 1 L3 cache");
     Builder builder;
     builder.AddL3(builder.AddCores(8, 2, 0), 96 * MiB);
     builder.AddL3(builder.AddCores(8, 2, 0), 32 * MiB);
     const Topology x3d = builder.topology;
     CHECK(Describe(MakePlan(x3d, Mode::Auto), x3d, Mode::Auto) ==
-          "GPU front 0xc, GPU back 0x30, guest cores 0xffc3 (on 8 cores in one 96 MiB L3); 16 "
-          "performance and 0 efficiency cores, 2 L3 caches");
+          "enabled (Settings), GPU front 0xc, GPU back 0x30, guest cores 0xffc3 (on 8 cores in one "
+          "96 MiB L3); 16 performance and 0 efficiency cores, 2 L3 caches");
     CHECK(Describe(MakePlan(cpu, Mode::Off), cpu, Mode::Off) ==
-          "off (EDEN_NX2_PIN_THREADS=0); 8 performance and 0 efficiency cores, 1 L3 cache");
+          "disabled (EDEN_NX2_PIN_THREADS=0); 8 performance and 0 efficiency cores, 1 L3 cache");
+    CHECK(Describe(MakePlan(cpu, Mode::Off), cpu, Mode::Off, "Settings") ==
+          "disabled (Settings); 8 performance and 0 efficiency cores, 1 L3 cache");
 }
 
 TEST_CASE("Thread pinning: sysfs CPU sets", "[common][thread_pinning]") {

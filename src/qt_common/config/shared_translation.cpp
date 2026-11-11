@@ -185,6 +185,12 @@ std::unique_ptr<TranslationMap> InitializeTranslations(QObject* parent) {
               "driver). Keeps the GPU queue short so frames reach the screen sooner. Boost also "
               "keeps GPU clocks up.\nRecommended with DLSS Frame Generation. Does nothing on "
               "GPUs or drivers without VK_NV_low_latency2.\nTakes effect when a game starts."));
+    INSERT(Settings, thread_pinning, tr("GPU thread pinning"),
+           tr("Pins the split GPU threads to their own CPU cores and keeps the guest cores off "
+              "those cores, so an SMT sibling never shares a GPU thread's core.\nOn by default "
+              "when the CPU has enough performance cores.\nEDEN_NX2_PIN_THREADS=0 turns it off "
+              "and 1 forces it on, even on smaller CPUs; either value overrides this setting.\n"
+              "Takes effect when a game starts."));
     INSERT(Settings, nvidia_dlss_frame_gen, tr("DLSS Frame Generation (experimental):"),
            tr("Native NVIDIA DLSS Frame Generation (Linux, GeForce RTX 40 and 50 series). Adds "
               "generated frames between the frames NVIDIA DLSS upscales: 2x adds one, 3x and 4x "

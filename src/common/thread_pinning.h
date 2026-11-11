@@ -34,7 +34,8 @@ struct Topology {
     u32 logical_processors{};
 };
 
-/// EDEN_NX2_PIN_THREADS: 0 is Off, 1 is Force, anything else (or unset) is Auto.
+/// EDEN_NX2_PIN_THREADS: 0 is Off, 1 is Force, anything else (or unset) is Auto
+/// (or the Graphics > GPU thread pinning setting, when the env var is unset).
 enum class Mode { Off, Auto, Force };
 [[nodiscard]] Mode ParseMode(const char* setting);
 
@@ -69,7 +70,10 @@ struct Plan {
 /// it has enough cores. Core 0 takes most interrupts, so it is never a GPU core.
 [[nodiscard]] Plan MakePlan(const Topology& topology, Mode mode);
 
-[[nodiscard]] std::string Describe(const Plan& plan, const Topology& topology, Mode mode);
+/// A short status line: "enabled (...)" or "disabled (...)". `source` is the reason
+/// ("Settings", "EDEN_NX2_PIN_THREADS=0", "EDEN_NX2_PIN_THREADS=1"); empty uses a default.
+[[nodiscard]] std::string Describe(const Plan& plan, const Topology& topology, Mode mode,
+                                   std::string_view source = {});
 
 /// Linux sysfs CPU sets as a mask of logical processors 0-63: the hex words of a
 /// thread_siblings or shared_cpu_map file ("00000000,00000041")...
