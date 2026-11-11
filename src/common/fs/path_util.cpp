@@ -332,6 +332,14 @@ void CreateEdenPaths() {
     PathManagerImpl::GetInstance().CreateEdenPaths();
 }
 
+#ifdef __linux__
+fs::path GetExeDirectory() {
+    std::error_code error;
+    const auto executable = fs::read_symlink("/proc/self/exe", error);
+    return error ? fs::path{} : executable.parent_path();
+}
+#endif
+
 #ifdef _WIN32
 
 fs::path GetExeDirectory() {

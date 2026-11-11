@@ -5,6 +5,10 @@ preset. Apply or OK updates these two choices while playing. The master DLSS
 checkbox still takes effect when a game starts. These controls apply only to the
 supported game-upscaler replacements, not every game or the window scaling filter.
 
+Linux builds with the native NGX backend (`ENABLE_NVIDIA_DLSS_NGX`) have the same
+quality and preset controls, live apply and status text. They have no download
+button: the checkbox's help lists where `libnvidia-ngx-dlss.so` is looked up.
+
 ## Checking that DLSS runs
 
 DLSS is the "Use NVIDIA DLSS in place of a game's DLSS" checkbox, not a window

@@ -59,7 +59,7 @@ public:
         return device.GetDriverName();
     }
 
-#ifdef EGLANTINE_STREAMLINE
+#ifdef EGLANTINE_NVIDIA_DLSS
     [[nodiscard]] VideoCore::DlssStatus GetDlssStatus() const override;
 #endif
 
@@ -91,7 +91,7 @@ private:
 
     std::shared_ptr<Common::DynamicLibrary> library;
     vk::InstanceDispatch dld;
-#ifdef EGLANTINE_STREAMLINE
+#ifdef EGLANTINE_NVIDIA_DLSS
     bool streamline_started; ///< NVIDIA Streamline starts before the instance.
 #endif
 

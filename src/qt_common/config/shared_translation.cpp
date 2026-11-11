@@ -158,6 +158,7 @@ std::unique_ptr<TranslationMap> InitializeTranslations(QObject* parent) {
     INSERT(Settings, nvidia_dlss_preset, tr("DLSS preset:"),
            tr("The DLSS model. K is the tested default; L and M are NVIDIA's newer models, J the "
               "older one. Default lets NVIDIA choose per quality mode."));
+#ifdef _WIN32
     INSERT(Settings, nvidia_dlss, tr("Use NVIDIA DLSS in place of a game's DLSS (experimental)"),
            tr("Uses NVIDIA DLSS on GeForce RTX cards in place of a Switch 2 game's own DLSS, "
               "instead of AMD FSR 3.1.\nNeeds NVIDIA's Streamline loader, and NVIDIA DLSS unless "
@@ -166,6 +167,19 @@ std::unique_ptr<TranslationMap> InitializeTranslations(QObject* parent) {
               "EDEN_NX2_DLSS_REPLACEMENT=dlss. Without that override, its spatial workaround "
               "remains active.\nIn The Legend of Zelda: Ocarina of Time it replaces the game's "
               "upscaler at 1x resolution scale.\nTakes effect when a game starts."));
+#else
+    INSERT(Settings, nvidia_dlss, tr("Use NVIDIA DLSS in place of a game's DLSS (experimental)"),
+           tr("Uses NVIDIA DLSS on GeForce RTX cards in place of a Switch 2 game's own DLSS, "
+              "instead of AMD FSR 3.1.\nNeeds NVIDIA's libnvidia-ngx-dlss.so, from NVIDIA's DLSS "
+              "SDK. Lichii does not ship NVIDIA's files.\nPut the library in $EDEN_NGX_DIR, in "
+              "ngx/ next to the executable, or in $XDG_DATA_HOME/fritchii/ngx (this is "
+              "~/.local/share/fritchii/ngx when XDG_DATA_HOME is unset). The older "
+              "~/.local/share/eden/ngx is still read. A versioned filename such as "
+              "libnvidia-ngx-dlss.so.310.9.16 is accepted.\nFire Emblem: Fortune's Weave also needs "
+              "EDEN_NX2_DLSS_REPLACEMENT=dlss. Without that override, its spatial workaround "
+              "remains active.\nIn The Legend of Zelda: Ocarina of Time it replaces the game's "
+              "upscaler at 1x resolution scale.\nTakes effect when a game starts."));
+#endif
     INSERT(Settings, nvidia_dlss_quality, tr("DLSS quality:"),
            tr("Automatic picks the mode from the game's own resolution. Native (DLAA) keeps the "
               "game's resolution and only smooths it. Other modes apply when they fit the game's "

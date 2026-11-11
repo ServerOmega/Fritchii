@@ -21,9 +21,9 @@
 #include "video_core/host_shaders/ocarina_dlss_bias_comp_spv.h"
 #include "video_core/host_shaders/ocarina_dlss_effects_comp_spv.h"
 #include "video_core/renderer_vulkan/vk_master_semaphore.h"
-#ifdef EGLANTINE_STREAMLINE
+#ifdef EGLANTINE_NVIDIA_DLSS
 #include "video_core/renderer_vulkan/vk_streamline_dlss.h"
-#include "video_core/vulkan_common/streamline.h"
+#include "video_core/vulkan_common/nvidia_dlss.h"
 #endif
 
 #include "video_core/host_shaders/ocarina_camera_motion_comp_spv.h"
@@ -707,9 +707,9 @@ struct OcarinaUpscaler::Impl {
           motion_pass{device, scheduler, pool},
           color_pass{device, scheduler, pool},
           output_pass{device, scheduler, pool, OCARINA_DLSS_OUTPUT_COMP_SPV} {
-#ifdef EGLANTINE_STREAMLINE
+#ifdef EGLANTINE_NVIDIA_DLSS
         if (backend == VideoCommon::OcarinaUpscaleBackend::Dlss) {
-            dlss = std::make_unique<StreamlineDlssUpscaler>(device, scheduler, allocator);
+            dlss = std::make_unique<NvidiaDlssUpscaler>(device, scheduler, allocator);
             return;
         }
 #endif
@@ -735,8 +735,8 @@ struct OcarinaUpscaler::Impl {
     ComputePassDescriptorQueue& queue;
     MemoryAllocator& allocator;
     DescriptorPool& pool;
-#ifdef EGLANTINE_STREAMLINE
-    std::unique_ptr<StreamlineDlssUpscaler> dlss;
+#ifdef EGLANTINE_NVIDIA_DLSS
+    std::unique_ptr<NvidiaDlssUpscaler> dlss;
 #endif
     std::unique_ptr<Fsr3Upscaler> fsr;
     std::unique_ptr<Fsr4Upscaler> fsr4;
@@ -751,20 +751,20 @@ struct OcarinaUpscaler::Impl {
     }
 
     bool Failed() const {
-#ifdef EGLANTINE_STREAMLINE
+#ifdef EGLANTINE_NVIDIA_DLSS
         return dlss ? dlss->Failed() : !fsr;
 #else
         return !fsr;
 #endif
     }
     VkSampler PointSampler() const {
-#ifdef EGLANTINE_STREAMLINE
+#ifdef EGLANTINE_NVIDIA_DLSS
         if (dlss) return dlss->PointSampler();
 #endif
         return fsr->PointSampler();
     }
     VkImageView OutputView() const {
-#ifdef EGLANTINE_STREAMLINE
+#ifdef EGLANTINE_NVIDIA_DLSS
         if (dlss) return dlss->OutputView();
 #endif
         if (output_fsr4) return fsr4->OutputView();
@@ -991,7 +991,7 @@ bool OcarinaUpscaler::Record(VkImageView color, VkImageView depth, VkImageView t
     const bool reset = !state.last_frame || frame != *state.last_frame + 1 ||
                        !std::ranges::equal(previous, state.last_view_projection,
                                            [](f32 a, f32 b) { return std::abs(a - b) < 0.001f; });
-#ifdef EGLANTINE_STREAMLINE
+#ifdef EGLANTINE_NVIDIA_DLSS
     if (state.dlss && !state.dlss->Upscale({
             .color = {*resources.color_view, *resources.color, LIVE_COLOR_FORMAT, COLOR_RANGE,
                       VK_IMAGE_ASPECT_COLOR_BIT},
@@ -1105,8 +1105,8 @@ bool OcarinaUpscaler::Record(VkImageView color, VkImageView depth, VkImageView t
 VideoCommon::OcarinaUpscaleBackend ResolveOcarinaUpscaler(const Device& device) {
     const char* value = std::getenv("EDEN_NX2_DLSS_REPLACEMENT");
     bool dlss_available = false;
-#ifdef EGLANTINE_STREAMLINE
-    dlss_available = Streamline::IsDlssAvailable();
+#ifdef EGLANTINE_NVIDIA_DLSS
+    dlss_available = NvidiaDlss::IsDlssAvailable();
 #endif
     const auto backend = VideoCommon::SelectOcarinaUpscaler(
         Settings::values.oot_anti_aliasing.GetValue(), Settings::values.nvidia_dlss.GetValue(),

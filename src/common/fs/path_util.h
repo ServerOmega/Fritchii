@@ -294,7 +294,7 @@ void SetEdenPath(EdenPath eden_path, const Path& new_path) {
 }
 #endif
 
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__linux__)
 
 /**
  * Gets the path of the directory containing the executable of the current process.
@@ -302,6 +302,10 @@ void SetEdenPath(EdenPath eden_path, const Path& new_path) {
  * @returns The path of the directory containing the executable of the current process.
  */
 [[nodiscard]] std::filesystem::path GetExeDirectory();
+
+#endif
+
+#ifdef _WIN32
 
 /**
  * Gets the path of the current user's %APPDATA% directory (%USERPROFILE%/AppData/Roaming).

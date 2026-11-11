@@ -634,8 +634,29 @@ if (ENABLE_NVIDIA_DLSS)
     )
     target_include_directories(video_core PRIVATE "${STREAMLINE_INCLUDE_DIR}")
     target_link_libraries(video_core PRIVATE version wintrust crypt32)
-    target_compile_definitions(video_core PUBLIC EGLANTINE_STREAMLINE)
+    target_compile_definitions(video_core PUBLIC EGLANTINE_STREAMLINE EGLANTINE_NVIDIA_DLSS)
     message(STATUS "NVIDIA DLSS through Streamline: ${STREAMLINE_INCLUDE_DIR}")
 endif()
 
 create_target_directory_groups(video_core)
+
+cmake_dependent_option(ENABLE_NVIDIA_DLSS_NGX "Enable native Linux NVIDIA DLSS (external SDK)" OFF
+                       "LINUX AND ARCHITECTURE_x86_64" OFF)
+set(NVIDIA_NGX_SDK "" CACHE PATH "External NVIDIA DLSS SDK directory")
+if (ENABLE_NVIDIA_DLSS_NGX)
+    if (ENABLE_NVIDIA_DLSS)
+        message(FATAL_ERROR "Choose one NVIDIA DLSS backend")
+    endif()
+    if (NOT EXISTS "${NVIDIA_NGX_SDK}/include/nvsdk_ngx_vk.h" OR
+        NOT EXISTS "${NVIDIA_NGX_SDK}/lib/Linux_x86_64/libnvsdk_ngx.a")
+        message(FATAL_ERROR "NVIDIA_NGX_SDK must point at a separately obtained Linux DLSS SDK")
+    endif()
+    target_sources(video_core PRIVATE
+        vulkan_common/ngx.cpp
+        vulkan_common/ngx_runtime.cpp
+        renderer_vulkan/vk_ngx_dlss.cpp)
+    target_include_directories(video_core SYSTEM PRIVATE "${NVIDIA_NGX_SDK}/include")
+    target_link_libraries(video_core PRIVATE
+        "${NVIDIA_NGX_SDK}/lib/Linux_x86_64/libnvsdk_ngx.a" ${CMAKE_DL_LIBS})
+    target_compile_definitions(video_core PUBLIC EGLANTINE_NGX EGLANTINE_NVIDIA_DLSS)
+endif()
