@@ -35,7 +35,7 @@ struct Topology {
 };
 
 /// EDEN_NX2_PIN_THREADS: 0 is Off, 1 is Force, anything else (or unset) is Auto
-/// (or the Graphics > GPU thread pinning setting, when the env var is unset).
+/// (or the Advanced Graphics > GPU thread pinning setting, when the env var is unset).
 enum class Mode { Off, Auto, Force };
 [[nodiscard]] Mode ParseMode(const char* setting);
 

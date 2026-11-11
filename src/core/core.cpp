@@ -15,6 +15,7 @@
 #include "common/nx2_sampler.h"
 #include "common/adpf.h"
 #include "common/settings.h"
+#include "common/thread.h"
 #include "common/settings_enums.h"
 #include "common/shutdown_progress.h"
 #include "common/string_util.h"
@@ -356,6 +357,9 @@ struct System::Impl {
     }
 
     SystemResultStatus SetupForApplicationProcess(System& system, Frontend::EmuWindow& emu_window) {
+        // Re-read Advanced Graphics > GPU thread pinning (and EDEN_NX2_PIN_THREADS) so a mid-session
+        // toggle is applied, or cleared, when this game's GPU and guest threads start.
+        Common::RefreshThreadPinning();
         host1x_core.emplace(system);
         VideoCore::CreateGPU(gpu_core, emu_window, system);
         if (!gpu_core)

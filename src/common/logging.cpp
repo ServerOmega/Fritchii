@@ -297,6 +297,18 @@ struct FileBackend final : public Backend {
                     message.find(version) != std::string::npos;
                 if (keep_version)
                     boost::replace_all(message, version, "\x01");
+                // Turn $HOME into "~" first so "/home/<name>/.cache/nvidia/GLCache" stays a
+                // usable path ("~/.cache/nvidia/GLCache") instead of becoming
+                // "/home/user/.cache/nvidia/GLCache", which is not a real directory.
+                if (const char* home = std::getenv("HOME"); home != nullptr && home[0] != '\0') {
+                    std::string home_path{home};
+                    while (home_path.size() > 1 && (home_path.back() == '/' || home_path.back() == '\\')) {
+                        home_path.pop_back();
+                    }
+                    if (home_path.size() > 1) {
+                        boost::replace_all(message, home_path, "~");
+                    }
+                }
                 boost::replace_all(message, username, "user");
                 if (keep_version)
                     boost::replace_all(message, "\x01", version);

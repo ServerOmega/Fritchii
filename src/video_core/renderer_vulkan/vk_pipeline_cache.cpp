@@ -642,11 +642,13 @@ void LogDriverCacheFolder(const Device& device, std::string_view when) {
         const char* const skip = std::getenv("__GL_SHADER_DISK_CACHE_SKIP_CLEANUP");
         const char* const disabled = std::getenv("__GL_SHADER_DISK_CACHE");
         const char* const cache_path = std::getenv("__GL_SHADER_DISK_CACHE_PATH");
+        const char* const app_name = std::getenv("__GL_SHADER_DISK_CACHE_APP_NAME");
         LOG_INFO(Render_Vulkan,
                  "Driver cache settings ({}): __GL_SHADER_DISK_CACHE={} _PATH={} _SIZE={} "
-                 "_SKIP_CLEANUP={}",
+                 "_SKIP_CLEANUP={} _APP_NAME={}",
                  when, disabled ? disabled : "(unset)", cache_path ? cache_path : "(unset)",
-                 size ? size : "(unset)", skip ? skip : "(unset)");
+                 size ? size : "(unset)", skip ? skip : "(unset)",
+                 app_name ? app_name : "(unset)");
     }
 #endif
     std::error_code ec;
@@ -656,7 +658,16 @@ void LogDriverCacheFolder(const Device& device, std::string_view when) {
     }
     u64 files = 0;
     u64 bytes = 0;
-    std::filesystem::file_time_type newest{};
+    // file_clock's epoch is 2174-01-01 on some libraries: a default-constructed time is in the
+    // future, and max() with a real mtime stays there, so "now - newest" was a large negative
+    // ("newest written -4643229226 s ago"). Only start the max once a write time is known.
+    std::optional<std::filesystem::file_time_type> newest;
+    struct Entry {
+        std::string name;
+        u64 files{};
+        u64 bytes{};
+    };
+    std::vector<Entry> entries;
     for (std::filesystem::recursive_directory_iterator it{folder, ec}, end; !ec && it != end;
          it.increment(ec)) {
         std::error_code entry_ec;
@@ -664,17 +675,59 @@ void LogDriverCacheFolder(const Device& device, std::string_view when) {
             continue;
         }
         ++files;
-        bytes += it->file_size(entry_ec);
-        newest = (std::max)(newest, it->last_write_time(entry_ec));
+        std::error_code size_ec;
+        const u64 size = it->file_size(size_ec);
+        if (!size_ec) {
+            bytes += size;
+        }
+        std::error_code time_ec;
+        const auto written = it->last_write_time(time_ec);
+        if (!time_ec) {
+            if (!newest || written > *newest) {
+                newest = written;
+            }
+        }
+        std::error_code rel_ec;
+        const auto rel = std::filesystem::relative(it->path(), folder, rel_ec);
+        std::string name = ".";
+        if (!rel_ec && !rel.empty()) {
+            name = rel.begin()->string();
+        }
+        auto found = std::find_if(entries.begin(), entries.end(),
+                                  [&](const Entry& e) { return e.name == name; });
+        const u64 counted = size_ec ? 0 : size;
+        if (found == entries.end()) {
+            entries.push_back(Entry{std::move(name), 1, counted});
+        } else {
+            ++found->files;
+            found->bytes += counted;
+        }
     }
-    const auto age = std::chrono::duration_cast<std::chrono::seconds>(
-        std::filesystem::file_time_type::clock::now() - newest);
+    s64 age_s = -1;
+    if (newest) {
+        const auto age = std::chrono::duration_cast<std::chrono::seconds>(
+            std::filesystem::file_time_type::clock::now() - *newest);
+        age_s = age.count();
+        if (age_s < 0) {
+            age_s = 0;
+        }
+    }
     const char* const amd_path = std::getenv("AMD_VK_PIPELINE_CACHE_PATH");
     LOG_INFO(Render_Vulkan,
              "Driver cache folder {} ({}): {} files, {} MiB, newest written {} s ago{}{}",
-             folder.string(), when, files, bytes >> 20, files != 0 ? age.count() : -1,
+             folder.string(), when, files, bytes >> 20, files != 0 ? age_s : -1,
              amd_path != nullptr ? "; AMD_VK_PIPELINE_CACHE_PATH=" : "",
              amd_path != nullptr ? amd_path : "");
+    if (entries.size() > 1 || (entries.size() == 1 && entries.front().name != ".")) {
+        std::string detail;
+        for (const Entry& e : entries) {
+            if (!detail.empty()) {
+                detail += "; ";
+            }
+            detail += fmt::format("{} {} MiB ({} files)", e.name, e.bytes >> 20, e.files);
+        }
+        LOG_INFO(Render_Vulkan, "Driver cache entries ({}): {}", when, detail);
+    }
 #endif
 }
 

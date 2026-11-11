@@ -250,8 +250,11 @@ int main(int argc, char* argv[]) {
     // already set (the player's, or nx2_switches.txt) wins.
     if (FritchiiUi::Enabled()) {
         // A stable path under ~/.cache/fritchii, not the shared ~/.cache/nvidia/GLCache that
-        // other OpenGL/Vulkan apps (and the driver's default cleanup) can evict. Already-set
-        // values (the player's, or nx2_switches.txt) win.
+        // other OpenGL/Vulkan apps, Steam's shadercachemanager, and the driver's default
+        // cleanup can evict mid-run (a 180 MiB cache went to 0 MiB during preparation while
+        // SKIP_CLEANUP and a 10 GiB size were already set). Already-set values (the player's,
+        // or nx2_switches.txt) win. The AppImage AppRun sets these before the binary starts
+        // so a driver constructor cannot read the defaults first.
 #if defined(__linux__) && !defined(__ANDROID__)
         if (!qEnvironmentVariableIsSet("__GL_SHADER_DISK_CACHE_PATH")) {
             std::filesystem::path folder;
@@ -269,6 +272,11 @@ int main(int argc, char* argv[]) {
         }
         if (!qEnvironmentVariableIsSet("__GL_SHADER_DISK_CACHE")) {
             qputenv("__GL_SHADER_DISK_CACHE", "1");
+        }
+        // Stable name so a new AppImage path or a remount under /tmp/.mount_* does not
+        // open a fresh hash and drop the previous one. Already-set values win.
+        if (!qEnvironmentVariableIsSet("__GL_SHADER_DISK_CACHE_APP_NAME")) {
+            qputenv("__GL_SHADER_DISK_CACHE_APP_NAME", "fritchii");
         }
 #endif
         if (!qEnvironmentVariableIsSet("__GL_SHADER_DISK_CACHE_SKIP_CLEANUP")) {

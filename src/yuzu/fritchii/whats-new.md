@@ -67,9 +67,9 @@ Fritchii v5.7.
 
 - **No more flickering camera for players who had frame generation on before v5.** Fritchii has no frame generation, but an old setting kept it running in the background (and turned off Fritchii's frame pacing). It can't run anymore.
 - **Extended Dynamic State is set back to EDS2 once.** Players who set it to Disabled or EDS3 (often an old AMD crash tip) had "Preparing shaders" skip almost every shader. EDS2 is what the shaders are recorded with, and the AMD crash that tip avoided is fixed since v5.3. You can still change it afterwards.
-- **NVIDIA: the shader cache size is set by Fritchii itself.** Newer drivers no longer show "Shader Cache Size" in the NVIDIA Control Panel. Fritchii now tells the driver to keep a large cache for Fritchii only, nothing else on your PC changes.
+- **NVIDIA: the shader cache is kept in a Fritchii-only folder** (`~/.cache/fritchii/nvidia-glcache`) at a large size, so other apps and the driver's default cleanup cannot empty it mid-session.
 - **DLSS fixes:** the "Use NVIDIA DLSS" checkbox could be overridden by an old per-game value and show unchecked in game; it's a global setting now. New **DLSS preset** option (Default, J, K recommended, L, M) in Graphics.
-- Graphics > **GPU thread pinning** is on by default and can be turned off. `EDEN_NX2_PIN_THREADS=0` turns it off and `1` forces it on, overriding the setting.
+- Advanced Graphics > **GPU thread pinning** is on by default and can be turned off. `EDEN_NX2_PIN_THREADS=0` turns it off and `1` forces it on, overriding the setting. Changing the toggle is applied the next time a game boots (or cleared, with threads free to use every CPU). Background shader-build threads stay off the pinned GPU cores even if they start first.
 - The old "Prepare Shaders" window says it's the optional quick warm-up (the full preparation runs by itself when you start the game).
 
 ### In v5.4

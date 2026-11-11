@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <atomic>
 #include <bit>
+#include <mutex>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -920,34 +921,97 @@ void SetCurrentThreadToPerformanceCores() {
 #endif
 }
 
+#if defined(_WIN32) || (defined(__linux__) && !defined(__ANDROID__))
+namespace {
+struct PinningRuntime {
+    std::mutex mutex;
+    ThreadPinning::Plan plan{};
+    ThreadPinning::Mode mode{ThreadPinning::Mode::Auto};
+    std::string source{"Settings"};
+    ThreadPinning::Topology topology{};
+    std::vector<u64> guest_cores;
+    std::string status{"n/a"};
+    bool ready{false};
+};
+
+PinningRuntime g_pinning;
+
+void ComputePinningLocked() {
+    const char* env = std::getenv("EDEN_NX2_PIN_THREADS");
+    if (env != nullptr && env[0] != '\0') {
+        g_pinning.mode = ThreadPinning::ParseMode(env);
+        g_pinning.source = g_pinning.mode == ThreadPinning::Mode::Off
+                               ? "EDEN_NX2_PIN_THREADS=0"
+                           : g_pinning.mode == ThreadPinning::Mode::Force
+                               ? "EDEN_NX2_PIN_THREADS=1"
+                               : "EDEN_NX2_PIN_THREADS";
+    } else if (!Settings::values.thread_pinning.GetValue()) {
+        g_pinning.mode = ThreadPinning::Mode::Off;
+        g_pinning.source = "Settings";
+    } else {
+        g_pinning.mode = ThreadPinning::Mode::Auto;
+        g_pinning.source = "Settings";
+    }
+    g_pinning.topology = ReadPinningTopology();
+    g_pinning.plan = ThreadPinning::MakePlan(g_pinning.topology, g_pinning.mode);
+    LOG_INFO(Common, "Thread pinning: {}",
+             ThreadPinning::Describe(g_pinning.plan, g_pinning.topology, g_pinning.mode,
+                                    g_pinning.source));
+    g_pinning.guest_cores.clear();
+    const char* value = std::getenv("EDEN_NX2_GUEST_PIN_EACH");
+    if (g_pinning.plan.guest != 0 && value != nullptr && value[0] == '1') {
+        for (const ThreadPinning::Core& core : g_pinning.topology.cores) {
+            if (core.mask != 0 && (core.mask & ~g_pinning.plan.guest) == 0) {
+                g_pinning.guest_cores.push_back(core.mask);
+            }
+        }
+        LOG_INFO(Common, "Thread pinning: each guest core on its own physical core ({} cores)",
+                 g_pinning.guest_cores.size());
+    }
+    if (g_pinning.plan.Enabled()) {
+        g_pinning.status = "enabled (" + g_pinning.source + ")";
+    } else if (g_pinning.mode == ThreadPinning::Mode::Off) {
+        g_pinning.status = "disabled (" + g_pinning.source + ")";
+    } else {
+        g_pinning.status = "disabled (not enough cores, " + g_pinning.source + ")";
+    }
+    g_pinning.ready = true;
+    // Seed from the plan so background pipeline workers started before the GPU threads
+    // pin themselves still stay off those cores (otherwise BackgroundWorkCpuMask is 0
+    // and the log says "CPU mask 0x0" even when pinning is on).
+    pinned_gpu_mask.store(g_pinning.plan.front | g_pinning.plan.back, std::memory_order_relaxed);
+#if defined(__linux__) && !defined(__ANDROID__)
+    threads_pinned.store(false, std::memory_order_relaxed);
+#endif
+}
+
+void ClearCurrentThreadPinning() {
+#ifdef _WIN32
+    DWORD_PTR process{};
+    DWORD_PTR system{};
+    if (GetProcessAffinityMask(GetCurrentProcess(), &process, &system) && process != 0) {
+        SetThreadAffinityMask(GetCurrentThread(), process);
+    }
+#else
+    SetCurrentThreadAffinity(0);
+    affinity_chosen = false;
+#endif
+}
+} // namespace
+#endif
+
 void PinCurrentThread(PinnedRole role, int guest_core) {
 #if defined(_WIN32) || (defined(__linux__) && !defined(__ANDROID__))
-    // Off with EDEN_NX2_PIN_THREADS=0, forced with 1; otherwise the Graphics setting (on by
-    // default) uses Auto: on with enough performance cores (ThreadPinning::MakePlan). The split's
-    // back did about 8% more draws a second at Lake Hylia (Ryzen 7 7800X3D), its worst window
-    // 29 -> 54 fps, once no SMT sibling shared its core.
-    static const ThreadPinning::Plan plan = [] {
-        const char* env = std::getenv("EDEN_NX2_PIN_THREADS");
-        ThreadPinning::Mode mode;
-        std::string source;
-        if (env != nullptr && env[0] != '\0') {
-            mode = ThreadPinning::ParseMode(env);
-            source = mode == ThreadPinning::Mode::Off   ? "EDEN_NX2_PIN_THREADS=0"
-                     : mode == ThreadPinning::Mode::Force ? "EDEN_NX2_PIN_THREADS=1"
-                                                          : "EDEN_NX2_PIN_THREADS";
-        } else if (!Settings::values.thread_pinning.GetValue()) {
-            mode = ThreadPinning::Mode::Off;
-            source = "Settings";
-        } else {
-            mode = ThreadPinning::Mode::Auto;
-            source = "Settings";
+    ThreadPinning::Plan plan;
+    std::vector<u64> guest_cores;
+    {
+        std::scoped_lock lock{g_pinning.mutex};
+        if (!g_pinning.ready) {
+            ComputePinningLocked();
         }
-        const ThreadPinning::Topology topology = ReadPinningTopology();
-        const ThreadPinning::Plan result = ThreadPinning::MakePlan(topology, mode);
-        LOG_INFO(Common, "Thread pinning: {}",
-                 ThreadPinning::Describe(result, topology, mode, source));
-        return result;
-    }();
+        plan = g_pinning.plan;
+        guest_cores = g_pinning.guest_cores;
+    }
     u64 mask{};
     switch (role) {
     case PinnedRole::GpuFront:
@@ -960,21 +1024,6 @@ void PinCurrentThread(PinnedRole role, int guest_core) {
         mask = plan.guest;
         // EDEN_NX2_GUEST_PIN_EACH=1: one physical core each (the guest cores' JIT code was 73-80%
         // of their busy time at Castle Town; two on one core's SMT siblings share its units).
-        static const std::vector<u64> guest_cores = [] {
-            std::vector<u64> masks;
-            const char* value = std::getenv("EDEN_NX2_GUEST_PIN_EACH");
-            if (plan.guest == 0 || value == nullptr || value[0] != '1') {
-                return masks;
-            }
-            for (const ThreadPinning::Core& core : ReadPinningTopology().cores) {
-                if (core.mask != 0 && (core.mask & ~plan.guest) == 0) {
-                    masks.push_back(core.mask);
-                }
-            }
-            LOG_INFO(Common, "Thread pinning: each guest core on its own physical core ({} cores)",
-                     masks.size());
-            return masks;
-        }();
         if (guest_core >= 0 && !guest_cores.empty()) {
             mask = guest_cores[static_cast<size_t>(guest_core) % guest_cores.size()];
         }
@@ -999,9 +1048,30 @@ void PinCurrentThread(PinnedRole role, int guest_core) {
         } else if (role != PinnedRole::GuestCore) {
             pinned_gpu_mask.fetch_or(mask, std::memory_order_relaxed);
         }
+    } else {
+        // Off, or not enough cores: give this thread the process's full CPU set so a previous
+        // pin (or an inherited affinity) is not left in place across a game boot.
+        ClearCurrentThreadPinning();
     }
 #else
     (void)role;
+    (void)guest_core;
+#endif
+}
+
+void RefreshThreadPinning() {
+#if defined(_WIN32) || (defined(__linux__) && !defined(__ANDROID__))
+    std::scoped_lock lock{g_pinning.mutex};
+    ComputePinningLocked();
+#endif
+}
+
+std::string AppliedThreadPinningStatus() {
+#if defined(_WIN32) || (defined(__linux__) && !defined(__ANDROID__))
+    std::scoped_lock lock{g_pinning.mutex};
+    return g_pinning.status;
+#else
+    return "n/a";
 #endif
 }
 

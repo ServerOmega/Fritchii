@@ -445,7 +445,7 @@ struct Values {
     SwitchableSetting<bool> thread_pinning{linkage,
                                            true,
                                            "thread_pinning",
-                                           Category::Renderer,
+                                           Category::RendererAdvanced,
                                            Specialization::Default,
                                            true,
                                            false};

@@ -24,6 +24,7 @@
 #include "common/fs/path_util.h"
 #include "common/logging.h"
 #include "common/settings.h"
+#include "common/thread.h"
 #include "core/perf_stats.h"
 
 using namespace std::chrono_literals;
@@ -168,19 +169,6 @@ double PerfStats::GetLastFrameTimeScale() const {
 
 namespace {
 
-const char* PinningRequest() {
-    if (const char* value = std::getenv("EDEN_NX2_PIN_THREADS"); value && value[0] != '\0') {
-        if (value[0] == '0') {
-            return "off (EDEN_NX2_PIN_THREADS=0)";
-        }
-        if (value[0] == '1') {
-            return "force (EDEN_NX2_PIN_THREADS=1)";
-        }
-        return "on (EDEN_NX2_PIN_THREADS)";
-    }
-    return Settings::values.thread_pinning.GetValue() ? "on (Settings)" : "off (Settings)";
-}
-
 const char* DlssgRequest() {
     if (const char* value = std::getenv("EDEN_DLSSG"); value && value[0] != '\0') {
         switch (value[0]) {
@@ -252,7 +240,7 @@ void PerfStats::LogRunStart() {
     logged_run_start = true;
     LOG_INFO(Frontend,
              "Perf: run start pinning={} dlssg={} reflex={}",
-             PinningRequest(), DlssgRequest(), ReflexRequest());
+             Common::AppliedThreadPinningStatus(), DlssgRequest(), ReflexRequest());
 }
 
 void PerfStats::MaybeLogWindow(const PerfStatsResults& results) {

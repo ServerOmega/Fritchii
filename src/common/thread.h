@@ -12,6 +12,7 @@
 #include <condition_variable>
 #include <cstddef>
 #include <mutex>
+#include <string>
 #include <thread>
 #include "common/common_types.h"
 #include "common/polyfill_thread.h"
@@ -119,12 +120,19 @@ void SetCurrentThreadToPerformanceCores();
 
 /// Windows, Linux: one physical performance core each for the split GPU thread's halves and the
 /// guest cores kept off them, so an SMT sibling never shares the GPU threads' core. See
-/// ThreadPinning::MakePlan for when it applies. Graphics > GPU thread pinning (on by default);
+/// ThreadPinning::MakePlan for when it applies. Advanced Graphics > GPU thread pinning (on by default);
 /// EDEN_NX2_PIN_THREADS=0 turns it off, 1 forces it, and either overrides the setting.
 enum class PinnedRole : u32 { GpuFront, GpuBack, GuestCore };
 /// `guest_core`: the guest core index for GuestCore. With EDEN_NX2_GUEST_PIN_EACH=1 each guest core
 /// gets one physical core of the guest set to itself (its SMT siblings) instead of the whole set.
 void PinCurrentThread(PinnedRole role, int guest_core = -1);
+/// Re-read the Graphics setting (and EDEN_NX2_PIN_THREADS) and log "Thread pinning" again.
+/// Call at each game boot before GPU and guest threads start, so a mid-session toggle is
+/// applied (or cleared, resetting affinity to every CPU the process may use) on the next boot.
+void RefreshThreadPinning();
+/// Compact applied state for the Perf run-start line ("enabled (Settings)", "disabled
+/// (Settings)", "disabled (not enough cores, Settings)", or "n/a" before the first refresh).
+[[nodiscard]] std::string AppliedThreadPinningStatus();
 /// Windows, Linux: the logical processors (Windows: of processor group 0, Linux: 0-63) background
 /// work should use to stay off the cores pinned to the GPU threads (and their L3 cache where the
 /// CPU has several). 0 while nothing is pinned, and elsewhere.
