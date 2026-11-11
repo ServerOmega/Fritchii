@@ -5,6 +5,7 @@
 
 #include <algorithm>
 
+#include "common/frame_gen_perf.h"
 #include "common/logging.h"
 #include "common/settings.h"
 #include "video_core/renderer_vulkan/vk_present_manager.h"
@@ -74,6 +75,9 @@ NgxFrameGen::NgxFrameGen(const Device& device_, MemoryAllocator& memory_allocato
                          Scheduler& scheduler_)
     : device{device_}, memory_allocator{memory_allocator_}, scheduler{scheduler_},
       feature{std::make_unique<Ngx::FrameGenFeature>()}, multiplier{Ngx::FrameGenMultiplier()} {
+    Common::FrameGenPerf::Reset();
+    Common::FrameGenPerf::Get().multiplier.store(multiplier > 1 ? multiplier : 0,
+                                                 std::memory_order_relaxed);
     if (multiplier <= 1) {
         return;
     }
@@ -341,6 +345,7 @@ u32 NgxFrameGen::BeginFrame(Frame* real, VkFormat view_format,
     need_reset = false;
     ++frame_id;
     ++groups;
+    Common::FrameGenPerf::Get().rendered.fetch_add(1, std::memory_order_relaxed);
     generations = multiplier - 1;
     if (groups % 600 == 1) {
         LOG_INFO(Render_Vulkan,
@@ -356,6 +361,7 @@ void NgxFrameGen::GenerateInto(Frame* destination, u32 index) {
         return;
     }
     ++frames_generated;
+    Common::FrameGenPerf::Get().generated.fetch_add(1, std::memory_order_relaxed);
     Ngx::FrameGenInputs inputs{
         .backbuffer = {real_view, real_image, real_format, {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
                        VK_IMAGE_ASPECT_COLOR_BIT},
