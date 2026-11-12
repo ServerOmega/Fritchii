@@ -128,6 +128,7 @@ add_executable(tests
     common/frizti_settings.cpp
     common/game_presets.cpp
     common/host_memory.cpp
+    common/memory_detect.cpp
     common/multi_level_page_table.cpp
     common/page_table.cpp
     common/param_package.cpp

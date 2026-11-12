@@ -577,6 +577,10 @@ private:
     void EvictUnusedPipelines();
     u64 frame_count{};
     std::deque<std::pair<u64, std::unique_ptr<GraphicsPipeline>>> evicted_pipelines; ///< (tick, pipeline)
+    /// Pipelines were evicted: TickFrame queues QueueHeapTrim once they are all destroyed.
+    bool trim_after_evictions{};
+    /// Common::TrimHeap on the serialization thread (Linux with glibc, Lichii #1271).
+    void QueueHeapTrim(const char* reason);
     /// Pipelines the translate queue did not use (discarded, stale, abandoned, rejected by the
     /// verify mode), handed over on the GPU thread: destroyed by TickFrame once the GPU and
     /// their queued build are done with them, never on a translation thread (fable_answer_18

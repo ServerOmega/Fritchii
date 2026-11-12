@@ -3424,6 +3424,9 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
         QueueVulkanPipelineCacheSave(true);
         last_flush = std::chrono::steady_clock::now();
     }
+    // The boot builds are done: the driver's compiler scratch and the records they read are
+    // freed, but glibc keeps the pages (Lichii #1271).
+    QueueHeapTrim("the boot pipeline builds");
 
     if (state.statistics) {
         state.statistics->Report();
@@ -5907,6 +5910,11 @@ void PipelineCache::TickFrame() {
     while (!evicted_pipelines.empty() && scheduler.IsFree(evicted_pipelines.front().first)) {
         evicted_pipelines.pop_front();
     }
+    // The evicted pipelines are destroyed, but their driver memory stays with glibc until a trim.
+    if (trim_after_evictions && evicted_pipelines.empty()) {
+        trim_after_evictions = false;
+        QueueHeapTrim("evicting pipelines");
+    }
     // A retired translation's build may still be queued on the pipeline workers: destroying it
     // now would wait for that build, or run it here on the GPU thread.
     std::erase_if(retired_translations, [this](const auto& entry) {
@@ -6046,6 +6054,23 @@ void PipelineCache::EvictUnusedPipelines() {
     }
     LOG_INFO(Render_Vulkan, "Evicted {} graphics pipelines unused for {} frames, {} left", evicted,
              EvictAfterFrames, graphics_cache.size());
+    trim_after_evictions = true;
+}
+
+void PipelineCache::QueueHeapTrim([[maybe_unused]] const char* reason) {
+    // On the serialization thread (one worker, background cores). malloc_trim locks one arena at
+    // a time, so a thread that allocates from the arena being walked waits for that slice. The
+    // call itself does not run on the GPU thread. TrimHeap does nothing off Linux with glibc, so
+    // nothing is queued there. EDEN_NX2_MALLOC_TRIM=0 turns it off.
+#if defined(__linux__) && defined(__GLIBC__)
+    static const bool enabled = [] {
+        const char* value = std::getenv("EDEN_NX2_MALLOC_TRIM");
+        return value == nullptr || value[0] != '0';
+    }();
+    if (enabled) {
+        serialization_thread.QueueWork([reason] { Common::TrimHeap(reason); });
+    }
+#endif
 }
 
 void PipelineCache::EvictUnusedComputePipelines(int mode) {
