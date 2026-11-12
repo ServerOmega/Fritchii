@@ -96,6 +96,12 @@ std::unique_ptr<TranslationMap> InitializeTranslations(QObject* parent) {
            tr("Raises the clock the emulated CPU reports, which removes some FPS limiters.\n"
               "Weaker CPUs may see reduced performance, and certain games may behave improperly."));
 
+    INSERT(Settings, jit_warmup, tr("JIT warm-up (applies on game start)"),
+           tr("Remembers the game code the CPU emulator compiled and compiles it again on idle "
+              "CPU cores at the next launch, before the game reaches it. Cuts the hitches after "
+              "loading areas from the second launch on.\nOn by default. The block lists are kept "
+              "in the cache folder under jit/.\nEDEN_NX2_JIT_WARMUP=0 turns it off and 1 turns "
+              "it on; either value overrides this setting.\nTakes effect when a game starts."));
     INSERT(Settings, use_custom_cpu_ticks, QString(), QString());
     INSERT(Settings, cpu_ticks, tr("Custom CPU Ticks"),
            tr("Set a custom value of CPU ticks. Higher values can increase performance, but may "

@@ -285,6 +285,16 @@ struct Values {
                                               true,
                                               true};
 
+    // JIT warm-up from a per-title block list (Lichii #1225). On by default. EDEN_NX2_JIT_WARMUP=0
+    // turns it off and 1 turns it on, either value overriding this setting. Read at game start.
+    SwitchableSetting<bool> jit_warmup{linkage,
+                                       true,
+                                       "jit_warmup",
+                                       Category::Cpu,
+                                       Specialization::Default,
+                                       true,
+                                       false};
+
     SwitchableSetting<bool> use_custom_cpu_ticks{linkage,
                                                  false,
                                                  "use_custom_cpu_ticks",

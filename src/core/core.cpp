@@ -465,11 +465,17 @@ struct System::Impl {
         // Before the cores start: they read it from their JIT without a lock. Not with a single
         // core (no idle core to compile on) or the debugger, nor where any core's backend lacks
         // it (NCE, 32-bit processes, dynarmic's non-x64 backends).
-        // Fritchii: EDEN_NX2_JIT_WARMUP=0 turns the per-title block list off (on by default).
-        static const bool jit_warmup_enabled = [] {
-            const char* const value = std::getenv("EDEN_NX2_JIT_WARMUP");
-            return value == nullptr || value[0] != '0';
-        }();
+        // Fritchii: CPU > "JIT warm-up" (on by default); EDEN_NX2_JIT_WARMUP=0/1 overrides it.
+        // Read at every game start.
+        bool jit_warmup_enabled = Settings::values.jit_warmup.GetValue();
+        if (const char* const value = std::getenv("EDEN_NX2_JIT_WARMUP");
+            value != nullptr && (value[0] == '0' || value[0] == '1')) {
+            jit_warmup_enabled = value[0] == '1';
+            LOG_INFO(Core, "JIT warm-up: {} (EDEN_NX2_JIT_WARMUP={})",
+                     jit_warmup_enabled ? "on" : "off", value[0]);
+        } else {
+            LOG_INFO(Core, "JIT warm-up: {} (setting)", jit_warmup_enabled ? "on" : "off");
+        }
         if (jit_warmup_enabled && kernel.IsMulticore() && !system.DebuggerEnabled()) {
             Kernel::KProcess* const kprocess = process->GetHandle();
             bool supported = true;
