@@ -439,11 +439,11 @@ struct Values {
                                                   Specialization::Default,
                                                   true,
                                                   false};
-    // GPU / guest-core thread pinning (Frizti/Fritchii#53). On by default (Auto: pins when
-    // there are enough performance cores). EDEN_NX2_PIN_THREADS=0 turns it off, 1 forces it
+    // GPU / guest-core thread pinning (Frizti/Fritchii#53). Off by default. When enabled, Auto
+    // pins if there are enough performance cores. EDEN_NX2_PIN_THREADS=0 turns it off, 1 forces it
     // even on smaller CPUs, and either value overrides this setting. Takes effect at game start.
     SwitchableSetting<bool> thread_pinning{linkage,
-                                           true,
+                                           false,
                                            "thread_pinning",
                                            Category::RendererAdvanced,
                                            Specialization::Default,
