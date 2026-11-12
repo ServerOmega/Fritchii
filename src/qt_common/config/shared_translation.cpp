@@ -143,7 +143,10 @@ std::unique_ptr<TranslationMap> InitializeTranslations(QObject* parent) {
     INSERT(Settings, resolution_setup, tr("Resolution:"),
            tr("Forces to render at a different resolution.\n"
               "Higher resolutions require more VRAM and bandwidth.\n"
-              "Options lower than 1X can cause artifacts."));
+              "Options lower than 1X can cause artifacts.\n"
+              "The Legend of Zelda: Ocarina of Time renders at 1X while NVIDIA DLSS or AMD FSR "
+              "replaces its upscale (they need the scene at the game's own size); this setting "
+              "still applies to other games and to Ocarina without them."));
     INSERT(Settings, scaling_filter, tr("Window Adapting Filter:"), QString());
     INSERT(Settings, game_dlss_network, tr("Use the game's own DLSS"),
            tr("Runs a Switch 2 game's own DLSS (its upscaling network, translated for this GPU) "
@@ -166,7 +169,8 @@ std::unique_ptr<TranslationMap> InitializeTranslations(QObject* parent) {
               "download button below.\nFire Emblem: Fortune's Weave also needs "
               "EDEN_NX2_DLSS_REPLACEMENT=dlss. Without that override, its spatial workaround "
               "remains active.\nIn The Legend of Zelda: Ocarina of Time it replaces the game's "
-              "upscaler at 1x resolution scale.\nTakes effect when a game starts."));
+              "upscaler; the game renders at 1X while it does, whatever the Resolution setting."
+              "\nTakes effect when a game starts."));
 #else
     INSERT(Settings, nvidia_dlss, tr("Use NVIDIA DLSS in place of a game's DLSS (experimental)"),
            tr("Uses NVIDIA DLSS on GeForce RTX cards in place of a Switch 2 game's own DLSS, "
@@ -178,7 +182,8 @@ std::unique_ptr<TranslationMap> InitializeTranslations(QObject* parent) {
               "libnvidia-ngx-dlss.so.310.9.16 is accepted.\nFire Emblem: Fortune's Weave also needs "
               "EDEN_NX2_DLSS_REPLACEMENT=dlss. Without that override, its spatial workaround "
               "remains active.\nIn The Legend of Zelda: Ocarina of Time it replaces the game's "
-              "upscaler at 1x resolution scale.\nTakes effect when a game starts."));
+              "upscaler; the game renders at 1X while it does, whatever the Resolution setting."
+              "\nTakes effect when a game starts."));
 #endif
     INSERT(Settings, nvidia_reflex, tr("NVIDIA Reflex:"),
            tr("NVIDIA Reflex low latency mode (VK_NV_low_latency2, GeForce GPUs with a current "
@@ -202,7 +207,10 @@ std::unique_ptr<TranslationMap> InitializeTranslations(QObject* parent) {
     INSERT(Settings, nvidia_dlss_quality, tr("DLSS quality:"),
            tr("Automatic picks the mode from the game's own resolution. Native (DLAA) keeps the "
               "game's resolution and only smooths it. Other modes apply when they fit the game's "
-              "resolution, otherwise Automatic is used. Changes apply while playing."));
+              "resolution, otherwise Automatic is used. Changes apply while playing.\n"
+              "Ocarina of Time renders at 2560x1440, so Native (DLAA) there upscales to "
+              "3840x2160 with the mode that fits (Quality) instead of stretching 1440p; "
+              "EDEN_NX2_OOT_DLAA_1440P=1 keeps DLAA at 1440p."));
     INSERT(Settings, anti_aliasing, tr("Anti-Aliasing Method:"),
            tr("The anti-aliasing method to use.\nSMAA offers the best quality.\nFXAA "
               "can produce a more stable picture in lower resolutions."));

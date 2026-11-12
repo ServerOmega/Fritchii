@@ -324,6 +324,12 @@ private:
     bool oot_live_failed{};
     const char* oot_fallback_reason{};
     u32 oot_fallback_repeats{};
+    bool oot_active_logged{};          ///< logged the first upscaled frame (or after a skip run)
+    VkExtent2D oot_logged_render{};    ///< sizes of the last "active" log line
+    VkExtent2D oot_logged_output{};
+    bool oot_native_mapped_logged{};   ///< logged that Native (DLAA) upscales to 4K instead
+    bool oot_bypass_logged{};          ///< logged why "No sharpening" applies this boot
+    bool oot_bypass_off_logged{};      ///< logged that "No sharpening" is off this boot
     std::optional<u64> oot_dlss_frame;
     std::array<f32, 2> oot_jitter_applied{}; ///< in the viewport state now (render pixels)
     std::array<f32, 2> oot_jitter_offset{};  ///< what oot_jitter_frame's scene draws used

@@ -2,7 +2,9 @@
 #include "video_core/vulkan_common/ngx.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 #include <vector>
 #include "common/fs/path_util.h"
@@ -12,6 +14,58 @@
 
 namespace Vulkan::Ngx {
 namespace {
+// NGX image-clear synchronization (DLSS 310.9.16): NGX can clear an internal image right after a
+// transition to GENERAL whose destination scope covers shader writes but not transfer writes;
+// synchronization validation reports WRITE_AFTER_WRITE hazards there. The device-procedure
+// callback handed to NGX wraps vkCmdPipelineBarrier so such image barriers also cover the transfer
+// stage and transfer writes. Only barriers NGX itself records go through it.
+// From thanosipsis's workaround (thanosipsis/Lichii-linux-dlss@500c6cde069c), as integrated in
+// myshadowww/Lichii#3. EDEN_NX2_NGX_BARRIER_FIX=0 hands NGX the driver's procedures unwrapped.
+PFN_vkGetDeviceProcAddr ngx_get_device_proc{};
+std::atomic<PFN_vkCmdPipelineBarrier> ngx_pipeline_barrier{};
+
+VKAPI_ATTR void VKAPI_CALL NgxPipelineBarrier(VkCommandBuffer command, VkPipelineStageFlags src,
+                                              VkPipelineStageFlags dst, VkDependencyFlags flags,
+                                              u32 memory_count, const VkMemoryBarrier* memories,
+                                              u32 buffer_count,
+                                              const VkBufferMemoryBarrier* buffers,
+                                              u32 image_count, const VkImageMemoryBarrier* images) {
+    const auto barrier = ngx_pipeline_barrier.load(std::memory_order_acquire);
+    const auto needs_transfer = [](const VkImageMemoryBarrier& image) {
+        return image.newLayout == VK_IMAGE_LAYOUT_GENERAL &&
+               (image.dstAccessMask & VK_ACCESS_SHADER_WRITE_BIT) != 0;
+    };
+    if (image_count == 0 || images == nullptr ||
+        std::none_of(images, images + image_count, needs_transfer)) {
+        barrier(command, src, dst, flags, memory_count, memories, buffer_count, buffers,
+                image_count, images);
+        return;
+    }
+    std::vector<VkImageMemoryBarrier> patched(images, images + image_count);
+    for (auto& image : patched) {
+        if (needs_transfer(image)) {
+            image.dstAccessMask |= VK_ACCESS_TRANSFER_WRITE_BIT;
+        }
+    }
+    barrier(command, src, dst | VK_PIPELINE_STAGE_TRANSFER_BIT, flags, memory_count, memories,
+            buffer_count, buffers, image_count, patched.data());
+}
+
+VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL NgxGetDeviceProcAddr(VkDevice device, const char* name) {
+    const PFN_vkVoidFunction original = ngx_get_device_proc(device, name);
+    if (original != nullptr && name != nullptr && std::strcmp(name, "vkCmdPipelineBarrier") == 0) {
+        ngx_pipeline_barrier.store(reinterpret_cast<PFN_vkCmdPipelineBarrier>(original),
+                                   std::memory_order_release);
+        return reinterpret_cast<PFN_vkVoidFunction>(&NgxPipelineBarrier);
+    }
+    return original;
+}
+
+bool NgxBarrierFixEnabled() {
+    const char* value = std::getenv("EDEN_NX2_NGX_BARRIER_FIX");
+    return value == nullptr || *value != '0';
+}
+
 std::vector<std::filesystem::path> RuntimeDirectories() {
     std::vector<std::filesystem::path> dirs;
     if (const char* path = std::getenv("EDEN_NGX_DIR"); path && *path) {
@@ -122,8 +176,13 @@ bool Start() {
 }
 bool AttachDevice(VkInstance instance, VkPhysicalDevice physical, VkDevice device,
                   u32, vk::DeviceDispatch& dispatch) {
+    const bool barrier_fix = NgxBarrierFixEnabled();
+    ngx_get_device_proc = dispatch.vkGetDeviceProcAddr;
     const bool ready = Initialize(instance, physical, device, dispatch.vkGetInstanceProcAddr,
-                                  dispatch.vkGetDeviceProcAddr);
+                                  barrier_fix ? &NgxGetDeviceProcAddr
+                                              : dispatch.vkGetDeviceProcAddr);
+    LOG_INFO(Render_Vulkan, "NVIDIA DLSS (native NGX): image-clear barrier fix {}",
+             barrier_fix ? "on" : "off (EDEN_NX2_NGX_BARRIER_FIX=0)");
     LOG_INFO(Render_Vulkan, "NVIDIA DLSS (native NGX): device {} (result {:#x})",
              ready ? "ready" : "unavailable", LastResult());
     if (ready && FrameGenRequested() > 1) {

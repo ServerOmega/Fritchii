@@ -8,6 +8,7 @@
 #include <atomic>
 #if __cpp_lib_chrono >= 201907L
 #include <chrono>
+#include <cstdlib>
 #include <exception>
 #include <stdexcept>
 #endif
@@ -417,7 +418,30 @@ void TranslateResolutionInfo(ResolutionSetup setup, ResolutionScalingInfo& info)
 }
 
 void UpdateRescalingInfo() {
-    const auto setup = values.resolution_setup.GetValue();
+    auto setup = values.resolution_setup.GetValue();
+    // Ocarina of Time: NVIDIA DLSS and AMD FSR replace the game's 1440p -> 4K upscale pass and read
+    // the scene's colour, depth and motion at the game's own size. With resolution scaling the
+    // scene images are rescaled, the upscaler declines every frame, and the game's own pass draws
+    // instead (2026-11-11: 2X with DLSS on showed no DLSS at all). While a temporal upscaler
+    // replaces the pass, the game renders at 1X; the saved setting is left as it is and still
+    // applies to other games. EDEN_NX2_OOT_ALLOW_RESCALE=1 keeps the setting (no DLSS or FSR).
+    constexpr u64 OcarinaOfTime = 0x0400486024DEC000ULL;
+    if (GetCurrentProgramID() == OcarinaOfTime && setup != ResolutionSetup::Res1X) {
+        const char* allow = std::getenv("EDEN_NX2_OOT_ALLOW_RESCALE");
+        const char* replacement = std::getenv("EDEN_NX2_DLSS_REPLACEMENT");
+        const bool forced_native = replacement && std::string_view{replacement} == "native";
+        const auto aa = values.oot_anti_aliasing.GetValue();
+        const bool fsr = aa == OotAntiAliasing::Fsr3 || aa == OotAntiAliasing::Fsr4;
+        const bool dlss = values.nvidia_dlss.GetValue();
+        if ((dlss || fsr) && !forced_native && !(allow && *allow == '1')) {
+            LOG_INFO(Render, "Ocarina of Time: rendering at 1X instead of {} while {} replaces the "
+                             "game's upscale (it needs the scene at the game's own size); set "
+                             "EDEN_NX2_OOT_ALLOW_RESCALE=1 to keep {} without it",
+                     CanonicalizeEnum(setup), fsr ? "AMD FSR" : "NVIDIA DLSS",
+                     CanonicalizeEnum(setup));
+            setup = ResolutionSetup::Res1X;
+        }
+    }
     auto& info = values.resolution_info;
     TranslateResolutionInfo(setup, info);
 }

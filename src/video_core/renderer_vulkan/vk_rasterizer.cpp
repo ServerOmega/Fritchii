@@ -1549,11 +1549,28 @@ void RasterizerVulkan::DrawIndirect() {
 VideoCommon::OotNetwork::BypassState* RasterizerVulkan::OotNetworkBypass() {
     // Temporal upscaling replaces the same output pass and takes precedence until it fails.
     if (OcarinaTemporalEnabled() && !(oot_live_dlss && oot_live_dlss->EvaluationFailed())) {
-        static bool logged = false;
-        if (!std::exchange(logged, true)) {
-            LOG_INFO(Render_Vulkan, "Ocarina of Time: No sharpening is off while temporal upscaling is on");
+        if (!std::exchange(oot_bypass_off_logged, true)) {
+            LOG_INFO(Render_Vulkan, "Ocarina of Time: No sharpening is off while temporal upscaling "
+                                    "({}) is on; frames it skips use the game's anti-aliasing",
+                     oot_backend == VideoCommon::OcarinaUpscaleBackend::Fsr ? "FSR" : "DLSS");
         }
         return nullptr;
+    }
+    // "No sharpening" shows the tonemapped image without the game's anti-aliasing network. Say
+    // why temporal upscaling isn't taking its place (2026-11-11: a run with NVIDIA DLSS off read
+    // as "DLSS on, yet the network was bypassed").
+    if (!std::exchange(oot_bypass_logged, true)) {
+        const char* reason = oot_live_failed ? "the temporal upscaler failed this session"
+                             : (oot_live_dlss && oot_live_dlss->EvaluationFailed())
+                                 ? "DLSS evaluation failed this session"
+                             : !Settings::values.nvidia_dlss.GetValue()
+                                 ? "NVIDIA DLSS is off in Graphics"
+                                 : "NVIDIA DLSS is unavailable this session (see the native NGX "
+                                   "lines above)";
+        LOG_INFO(Render_Vulkan,
+                 "Ocarina of Time: No sharpening applies (the game's anti-aliasing network is "
+                 "bypassed, no anti-aliasing) because temporal upscaling is off: {}",
+                 reason);
     }
     return &oot_network_bypass;
 }
@@ -3004,6 +3021,24 @@ bool RasterizerVulkan::OcarinaTemporalEnabled() const {
         return *oot_backend != VideoCommon::OcarinaUpscaleBackend::Native;
     }
     oot_backend = ResolveOcarinaUpscaler(device);
+    if (*oot_backend == VideoCommon::OcarinaUpscaleBackend::Dlss) {
+        const int jitter = VideoCommon::OcarinaDlssJitterMode();
+        LOG_INFO(Render_Vulkan,
+                 "Ocarina DLSS: jitter mode {} ({}; {}), texture LOD bias {:.2f}, Native (DLAA) "
+                 "{}",
+                 jitter,
+                 jitter == 0   ? "off, unjittered input"
+                 : jitter == 1 ? "Halton offsets, x right / y down"
+                               : "Halton offsets, y negated",
+                 VideoCommon::OcarinaDlssJitterOverridden() ? "EDEN_NX2_DLSS_JITTER" : "default",
+                 VideoCommon::OcarinaFsrLodBias(*oot_backend),
+                 VideoCommon::OcarinaDlaaAt1440p() ? "at the scene size (EDEN_NX2_OOT_DLAA_1440P)"
+                                                   : "upscales the 1440p scene to 3840x2160");
+    } else {
+        LOG_INFO(Render_Vulkan, "Ocarina temporal upscaler: {}",
+                 *oot_backend == VideoCommon::OcarinaUpscaleBackend::Fsr ? "AMD FSR"
+                                                                          : "off (the game's own)");
+    }
     if (*oot_backend == VideoCommon::OcarinaUpscaleBackend::Native &&
         VideoCommon::OcarinaFsrChosen(Settings::values.oot_anti_aliasing.GetValue()) &&
         !Fsr3Upscaler::IsSupported(device)) {
@@ -3214,10 +3249,25 @@ bool RasterizerVulkan::TryOcarinaUpscale(const ComputePipeline& pipeline, bool r
     if ((!replace && pipeline.ShaderHash() != depth_reader) || !OcarinaTemporalEnabled()) {
         return false;
     }
-    const bool native_resolution =
+    // Native (DLAA) evaluates at the scene size, so its output is only as big as the scene. On
+    // the 1440p pass that left a 2560x1440 image for the window adapting filter to stretch to
+    // 4K (2026-11-11: "blurry"). DLAA at the output size needs a 3840x2160 scene, which Ocarina
+    // doesn't render (its maximum is 1440p and resolution scaling is off while DLSS replaces the
+    // upscale), so Native upscales to 4K like the other modes and the upscaler falls back to the
+    // mode that fits (Quality for 1440p -> 4K). EDEN_NX2_OOT_DLAA_1440P=1 keeps the old DLAA.
+    const bool native_requested =
         oot_backend == VideoCommon::OcarinaUpscaleBackend::Dlss &&
         Settings::GetNvidiaDlssRuntimeSettings().quality == Settings::NvidiaDlssQuality::Native;
+    const bool native_resolution = native_requested && VideoCommon::OcarinaDlaaAt1440p();
     const bool upscale_4k = pass_1440p && !native_resolution;
+    if (native_requested && pass_1440p && !native_resolution &&
+        !std::exchange(oot_native_mapped_logged, true)) {
+        LOG_INFO(Render_Vulkan,
+                 "Ocarina DLSS: Native (DLAA) needs the scene at the output size; Ocarina renders "
+                 "2560x1440, so DLSS upscales 2560x1440 -> 3840x2160 with the mode that fits "
+                 "(Quality) instead of DLAA at 1440p plus a bilinear stretch. "
+                 "EDEN_NX2_OOT_DLAA_1440P=1 keeps DLAA at 2560x1440");
+    }
     const auto read_tic = [this](u32 index) -> std::optional<Tegra::Texture::TICEntry> {
         const auto& table = kepler_compute->regs.tic;
         using Entry = Tegra::Texture::TICEntry;
@@ -3253,8 +3303,11 @@ bool RasterizerVulkan::TryOcarinaUpscale(const ComputePipeline& pipeline, bool r
     // Logs why the game's own upscale draws, when the reason changes and every 120th repeat.
     const auto fail = [this](const char* reason) {
         if (reason != oot_fallback_reason || ++oot_fallback_repeats % 120 == 0) {
-            LOG_INFO(Render_Vulkan, "Ocarina temporal: the game's upscale draws frame {} ({})",
+            LOG_INFO(Render_Vulkan,
+                     "Ocarina temporal ({}): skipped frame {} ({}); the game's upscale draws it",
+                     oot_backend == VideoCommon::OcarinaUpscaleBackend::Fsr ? "FSR" : "DLSS",
                      render_trace_frame, reason);
+            oot_active_logged = false; // the next upscaled frame logs "active" again
         }
         if (reason != oot_fallback_reason) {
             oot_fallback_reason = reason;
@@ -3287,7 +3340,8 @@ bool RasterizerVulkan::TryOcarinaUpscale(const ComputePipeline& pipeline, bool r
     const auto* backing = depth.BackingImage();
     if (!backing || depth.IsRescaled() || depth.format != VideoCore::Surface::PixelFormat::D32_FLOAT ||
         depth.range != VideoCommon::SubresourceRange{} || backing->info.num_samples != 1) {
-        return fail("unsupported scene depth");
+        return fail(depth.IsRescaled() ? "scene depth is resolution-scaled (only 1X is supported)"
+                                       : "unsupported scene depth");
     }
 
     const auto sampled = pipeline.SampledImages();
@@ -3362,6 +3416,24 @@ bool RasterizerVulkan::TryOcarinaUpscale(const ComputePipeline& pipeline, bool r
             oot_4k_guest_present = VK_NULL_HANDLE;
         }
         oot_dlss_frame = render_trace_frame;
+        if (!oot_active_logged || output_extent.width != oot_logged_output.width ||
+            output_extent.height != oot_logged_output.height ||
+            extent.width != oot_logged_render.width || extent.height != oot_logged_render.height) {
+            oot_active_logged = true;
+            oot_logged_render = extent;
+            oot_logged_output = output_extent;
+            LOG_INFO(Render_Vulkan,
+                     "Ocarina temporal ({}): active from frame {}: render {}x{} -> output {}x{} "
+                     "(guest target {}x{}{}), jitter mode {}, this frame's offset ({:.3f}, {:.3f})",
+                     oot_backend == VideoCommon::OcarinaUpscaleBackend::Fsr ? "FSR" : "DLSS",
+                     render_trace_frame, extent.width, extent.height, output_extent.width,
+                     output_extent.height, target_extent.width, target_extent.height,
+                     upscale_4k ? ", shown at 4K" : "",
+                     oot_backend == VideoCommon::OcarinaUpscaleBackend::Fsr
+                         ? 1
+                         : VideoCommon::OcarinaDlssJitterMode(),
+                     jitter[0], jitter[1]);
+        }
         // AMD's jitter phase count for FSR: 8 * (output / render width)^2, so 18 for 1440p -> 4K
         // and 8 for native AA.
         const f32 ratio = static_cast<f32>(output_extent.width) / static_cast<f32>(extent.width);

@@ -42,20 +42,49 @@ constexpr OcarinaUpscaleBackend SelectOcarinaUpscaler(Settings::OotAntiAliasing 
     return SelectOcarinaUpscaler(fsr, dlss_enabled && !fsr, dlss_available, override);
 }
 
-/// EDEN_NX2_DLSS_JITTER (boot, 0 = off): DLSS gets the camera jitter and the texture LOD bias
-/// the FSR path uses (a player's request; DLSS is made for jittered input). 1 = the jitter as FSR
-/// gets it, 2 = with its vertical sign flipped (Streamline's convention is unverified here).
+/// DLSS jitter for Ocarina (boot): the game renders without jitter, so Fritchii offsets the scene
+/// draws' viewport by a Halton (2, 3) sub-pixel amount each frame and hands DLSS the offset;
+/// without it DLSS (DLAA included) sees the same samples every frame and can't resolve edges.
+/// 1 (default) = the offset as FSR gets it: the content's shift in render pixels, x right and y
+/// down. That is the convention of FSR's projection-jitter sample and of NVIDIA's DLSS guide
+/// (3.7.3: "the same co-ordinate and direction system as motion vectors", [0,0] at the top left),
+/// and engines (Unreal's FSR and DLSS plug-ins) hand both the same TemporalJitterPixels.
+/// 2 = y negated, for when edges wobble or crawl with 1. 0 = off (the old unjittered input).
+/// EDEN_NX2_DLSS_JITTER=0/1/2 overrides the default.
 inline int OcarinaDlssJitterMode() {
     static const int mode = [] {
         const char* value = std::getenv("EDEN_NX2_DLSS_JITTER");
-        return value != nullptr ? std::atoi(value) : 0;
+        if (value == nullptr || *value == '\0') {
+            return 1;
+        }
+        const int parsed = std::atoi(value);
+        return parsed >= 0 && parsed <= 2 ? parsed : 1;
     }();
     return mode;
 }
 
+/// Whether EDEN_NX2_DLSS_JITTER set the jitter mode (for the log line).
+inline bool OcarinaDlssJitterOverridden() {
+    const char* value = std::getenv("EDEN_NX2_DLSS_JITTER");
+    return value != nullptr && *value != '\0';
+}
+
+/// EDEN_NX2_OOT_DLAA_1440P=1 (boot): DLSS Native (DLAA) keeps Ocarina's 2560x1440 scene at
+/// 2560x1440 (the window adapting filter then stretches it), as before. By default Native
+/// upscales to 3840x2160 instead: DLAA at the output size needs a 4K scene, and Ocarina renders
+/// at most 1440p (resolution scaling is off while DLSS replaces its upscale).
+inline bool OcarinaDlaaAt1440p() {
+    static const bool keep = [] {
+        const char* value = std::getenv("EDEN_NX2_OOT_DLAA_1440P");
+        return value != nullptr && *value == '1';
+    }();
+    return keep;
+}
+
 /// Texture LOD bias added to Ocarina's mipmapped samplers while FSR upscales. AMD recommends
-/// log2(render / output) - 1: -1.58 for docked 1440p -> 4K. With EDEN_NX2_DLSS_JITTER, DLSS gets
-/// NVIDIA's log2(render / output): -0.58.
+/// log2(render / output) - 1: -1.58 for docked 1440p -> 4K. With jittered DLSS (the default),
+/// NVIDIA's log2(render / output): -0.58 for 1440p -> 4K, the gentler end of the DLSS guide's
+/// range (3.5), which also stays inside its [-1, 0] for DLAA at 1440p.
 inline float OcarinaFsrLodBias(OcarinaUpscaleBackend backend) {
     if (backend == OcarinaUpscaleBackend::Fsr) {
         return -1.58f;

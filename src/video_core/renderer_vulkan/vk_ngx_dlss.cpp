@@ -326,12 +326,13 @@ bool NvidiaDlssUpscaler::Upscale(const Inputs& frame) {
             return;
         }
         if (index == 0 || options_changed) {
-            LOG_INFO(Render_Vulkan, "NVIDIA DLSS (native NGX): evaluation succeeded ({:#x}), {}x{} -> {}x{}, mode {}, preset {}, {}, depth {}",
+            LOG_INFO(Render_Vulkan, "NVIDIA DLSS (native NGX): evaluation succeeded ({:#x}), input {}x{} -> output {}x{}, mode {} (asked for {}), preset {}, {}, depth {}, jitter ({:.3f}, {:.3f})",
                      feature->LastResult(), in.render_size.width, in.render_size.height,
                      in.upscale_size.width, in.upscale_size.height,
-                     Settings::CanonicalizeEnum(evaluated_mode),
+                     Settings::CanonicalizeEnum(evaluated_mode), Settings::CanonicalizeEnum(requested),
                      in.preset ? std::string(1, in.preset) : std::string("default"),
-                     in.hdr ? "HDR" : "LDR", in.depth_inverted ? "inverted" : "standard");
+                     in.hdr ? "HDR" : "LDR", in.depth_inverted ? "inverted" : "standard",
+                     in.jitter[0], in.jitter[1]);
         }
         last_evaluation.store(static_cast<u32>(evaluated_mode) |
                                   (static_cast<u32>(requested) << 8) |
