@@ -19,6 +19,7 @@
 #include "common/settings_enums.h"
 #include "common/shutdown_progress.h"
 #include "common/string_util.h"
+#include "core/arm/dynarmic/jit_warmup.h"
 #include "core/arm/exclusive_monitor.h"
 #include "core/core.h"
 
@@ -461,6 +462,36 @@ struct System::Impl {
         // Make the process created be the application
         kernel.SetApplicationProcess(process->GetHandle());
 
+        // Before the cores start: they read it from their JIT without a lock. Not with a single
+        // core (no idle core to compile on) or the debugger, nor where any core's backend lacks
+        // it (NCE, 32-bit processes, dynarmic's non-x64 backends).
+        // Fritchii: EDEN_NX2_JIT_WARMUP=0 turns the per-title block list off (on by default).
+        static const bool jit_warmup_enabled = [] {
+            const char* const value = std::getenv("EDEN_NX2_JIT_WARMUP");
+            return value == nullptr || value[0] != '0';
+        }();
+        if (jit_warmup_enabled && kernel.IsMulticore() && !system.DebuggerEnabled()) {
+            Kernel::KProcess* const kprocess = process->GetHandle();
+            bool supported = true;
+            for (size_t core = 0; core < Core::Hardware::NUM_CPU_CORES; ++core) {
+                const Core::ArmInterface* const arm = kprocess->GetArmInterface(core);
+                supported = supported && arm != nullptr && arm->SupportsJitWarmup();
+            }
+            if (supported) {
+                jit_warmup = Core::JitWarmup::Create({
+                    .program_id = params.program_id,
+                    .build_id = build_id,
+                    .base = GetInteger(kprocess->GetEntryPoint()),
+                    .size = kprocess->GetCodeSize(),
+                });
+            }
+            if (jit_warmup) {
+                for (size_t core = 0; core < Core::Hardware::NUM_CPU_CORES; ++core) {
+                    kprocess->GetArmInterface(core)->SetJitWarmup(jit_warmup);
+                }
+            }
+        }
+
         // Set up the rest of the system.
         SystemResultStatus init_result{SetupForApplicationProcess(system, emu_window)};
         if (init_result != SystemResultStatus::Success) {
@@ -540,6 +571,7 @@ struct System::Impl {
         debug_service.reset();
         // Waits for a call in progress (it opens the RomFS, a quick step).
         VideoCommon::Nx2Precompile::SetGameFiles(0, {});
+        jit_warmup.reset();
         SetShuttingDown(true);
         Common::ADPF::Shutdown();
 
@@ -676,6 +708,8 @@ struct System::Impl {
     bool nvdec_active : 1 = false;
     /// EDEN_NX2_DEBUG_SERVER; the last member, so it stops before anything it reads goes away.
     std::unique_ptr<Nx2Debug::Service> debug_service;
+    /// The application's JIT warm-up; its JITs hold it as well.
+    std::shared_ptr<Core::JitWarmup> jit_warmup;
 
     void EnsureGeneralChannelInitialized(System& system) {
         if (!general_channel_event) {
