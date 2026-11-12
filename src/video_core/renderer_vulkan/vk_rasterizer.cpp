@@ -2173,9 +2173,13 @@ void RasterizerVulkan::DispatchCompute() {
     constexpr u64 ThreeQuarterShader = 0xef542df87cacfe9eULL;
     const bool fsr_only_pass = pipeline->ShaderHash() == ComputePipeline::OcarinaFullSizeShader ||
                                pipeline->ShaderHash() == ThreeQuarterShader;
+    // 4K DLAA (EDEN_NX2_OOT_4K=1) takes whichever known pass draws the 3840x2160 scene: at 1:1
+    // that may be the full-size one; TryOcarinaUpscale checks the sizes and logs them.
+    static const bool dlaa_4k = Common::Oot4kDlaaRequested();
     const bool can_replace = OcarinaTemporalEnabled() && pipeline->CanReplaceOcarinaUpscale() &&
                              (!fsr_only_pass ||
-                              oot_backend == VideoCommon::OcarinaUpscaleBackend::Fsr) &&
+                              oot_backend == VideoCommon::OcarinaUpscaleBackend::Fsr ||
+                              (dlaa_4k && oot_backend == VideoCommon::OcarinaUpscaleBackend::Dlss)) &&
                              !indirect_address && !frame_dump.Capturing();
     // Until a dispatch overwrites the scene, each direct one binds only after the effects are
     // marked. The indirect path records its bind at once.
@@ -2197,8 +2201,12 @@ void RasterizerVulkan::DispatchCompute() {
         }
         if (!written.empty() && written[0]) {
             const auto& target = texture_cache.GetImageView(written[0]);
-            LogOcarina4kTarget("upscale output", target.size.width, target.size.height,
-                               target.format);
+            LogOcarina4kTarget(pipeline->ShaderHash() == ComputePipeline::Ocarina1440pShader
+                                   ? "upscale output (scene pass 6bd913e1f34e83eb)"
+                               : pipeline->ShaderHash() == ComputePipeline::OcarinaFullSizeShader
+                                   ? "upscale output (full-size pass c033c3ddc9f0897b)"
+                                   : "upscale output (other known pass)",
+                               target.size.width, target.size.height, target.format);
         }
     }
     if (VideoCommon::GpuSplit::RecordingDispatch()) {
@@ -3079,8 +3087,9 @@ bool RasterizerVulkan::OcarinaTemporalEnabled() const {
                                : "Halton offsets, y negated",
                  VideoCommon::OcarinaDlssJitterOverridden() ? "EDEN_NX2_DLSS_JITTER" : "default",
                  VideoCommon::OcarinaFsrLodBias(*oot_backend),
-                 VideoCommon::OcarinaDlaaAt1440p() ? "at the scene size (EDEN_NX2_OOT_DLAA_1440P)"
-                                                   : "upscales the 1440p scene to 3840x2160");
+                 Common::Oot4kDlaaRequested()      ? "at the 3840x2160 scene (EDEN_NX2_OOT_4K)"
+                : VideoCommon::OcarinaDlaaAt1440p() ? "at the scene size (EDEN_NX2_OOT_DLAA_1440P)"
+                                                    : "upscales the 1440p scene to 3840x2160");
     } else {
         LOG_INFO(Render_Vulkan, "Ocarina temporal upscaler: {}",
                  *oot_backend == VideoCommon::OcarinaUpscaleBackend::Fsr ? "AMD FSR"
@@ -3302,12 +3311,19 @@ bool RasterizerVulkan::TryOcarinaUpscale(const ComputePipeline& pipeline, bool r
     // doesn't render (its maximum is 1440p and resolution scaling is off while DLSS replaces the
     // upscale), so Native upscales to 4K like the other modes and the upscaler falls back to the
     // mode that fits (Quality for 1440p -> 4K). EDEN_NX2_OOT_DLAA_1440P=1 keeps the old DLAA.
+    //
+    // Native 4K (EDEN_NX2_OOT_4K=1) is the case that comment waited for: the scene is 3840x2160,
+    // so DLSS runs as DLAA at the scene size whatever quality is chosen, writes the game's own
+    // target, and nothing is stretched or swapped at present.
+    static const bool dlaa_4k_requested = Common::Oot4kDlaaRequested();
+    const bool dlaa_4k = dlaa_4k_requested && oot_backend == VideoCommon::OcarinaUpscaleBackend::Dlss;
     const bool native_requested =
         oot_backend == VideoCommon::OcarinaUpscaleBackend::Dlss &&
         Settings::GetNvidiaDlssRuntimeSettings().quality == Settings::NvidiaDlssQuality::Native;
-    const bool native_resolution = native_requested && VideoCommon::OcarinaDlaaAt1440p();
+    const bool native_resolution =
+        dlaa_4k || (native_requested && VideoCommon::OcarinaDlaaAt1440p());
     const bool upscale_4k = pass_1440p && !native_resolution;
-    if (native_requested && pass_1440p && !native_resolution &&
+    if (!dlaa_4k && native_requested && pass_1440p && !native_resolution &&
         !std::exchange(oot_native_mapped_logged, true)) {
         LOG_INFO(Render_Vulkan,
                  "Ocarina DLSS: Native (DLAA) needs the scene at the output size; Ocarina renders "
@@ -3348,11 +3364,13 @@ bool RasterizerVulkan::TryOcarinaUpscale(const ComputePipeline& pipeline, bool r
         return false;
     }
     // Logs why the game's own upscale draws, when the reason changes and every 120th repeat.
-    const auto fail = [this](const char* reason) {
+    const auto fail = [this, dlaa_4k](const char* reason) {
         if (reason != oot_fallback_reason || ++oot_fallback_repeats % 120 == 0) {
             LOG_INFO(Render_Vulkan,
-                     "Ocarina temporal ({}): skipped frame {} ({}); the game's upscale draws it",
-                     oot_backend == VideoCommon::OcarinaUpscaleBackend::Fsr ? "FSR" : "DLSS",
+                     "{}: skipped frame {} ({}); the game's upscale draws it",
+                     dlaa_4k ? "Ocarina 4K DLAA"
+                     : oot_backend == VideoCommon::OcarinaUpscaleBackend::Fsr ? "Ocarina temporal (FSR)"
+                                                                              : "Ocarina temporal (DLSS)",
                      render_trace_frame, reason);
             oot_active_logged = false; // the next upscaled frame logs "active" again
         }
@@ -3401,12 +3419,22 @@ bool RasterizerVulkan::TryOcarinaUpscale(const ComputePipeline& pipeline, bool r
     using VideoCore::Surface::PixelFormat;
     const auto extent = oot_motion.extent;
     const bool native_size = pipeline.ShaderHash() == ComputePipeline::OcarinaFullSizeShader;
+    const bool target_is_scene =
+        target.size.width == extent.width && target.size.height == extent.height;
+    // With 4K the scene pass runs at whatever size the patched game picked; it must still be
+    // 1:1 with its target. Without 4K the 1440p pass keeps its fixed 2560x1440 check.
     const bool valid_extents =
-        pass_1440p ? extent.width == 2560 && extent.height == 1440 && target.size.width == 2560 &&
-                         target.size.height == 1440
-        : native_size ? target.size.width == extent.width && target.size.height == extent.height
+        pass_1440p ? target_is_scene && (dlaa_4k || (extent.width == 2560 && extent.height == 1440))
+        : native_size ? target_is_scene
                       : target.size.width == extent.width * 4 / 3 &&
                             target.size.height == extent.height * 4 / 3;
+    if (dlaa_4k && !valid_extents && !std::exchange(oot_4k_shape_logged, true)) {
+        LOG_INFO(Render_Vulkan,
+                 "Ocarina 4K DLAA: pass {:016x} has scene {}x{}, sampled {}x{}, target {}x{}; not "
+                 "a shape DLSS takes, so the game's pass draws",
+                 pipeline.ShaderHash(), extent.width, extent.height, color.size.width,
+                 color.size.height, target.size.width, target.size.height);
+    }
     if (!valid_extents || !color.BackingImage() || !target.BackingImage() ||
         color.IsRescaled() || target.IsRescaled() ||
         color.Samples() != VK_SAMPLE_COUNT_1_BIT || target.Samples() != VK_SAMPLE_COUNT_1_BIT ||
@@ -3447,13 +3475,17 @@ bool RasterizerVulkan::TryOcarinaUpscale(const ComputePipeline& pipeline, bool r
         if (oot_jitter_frame == render_trace_frame) {
             jitter = oot_jitter_offset;
         }
-        const VkExtent2D output_extent = native_resolution ? extent
-                                         : upscale_4k      ? VkExtent2D{3840, 2160}
-                                                           : target_extent;
+        // 4K DLAA: input == output == the scene only when the pass is 1:1; a 4/3 pass (scene
+        // smaller than its target) is upscaled to the target instead and logged below.
+        const bool dlaa_4k_native = dlaa_4k && target_is_scene;
+        const VkExtent2D output_extent = (native_resolution && (!dlaa_4k || dlaa_4k_native))
+                                             ? extent
+                                         : upscale_4k ? VkExtent2D{3840, 2160}
+                                                      : target_extent;
         const bool recorded = oot_live_dlss->Record(color_view, depth.DepthView(), target_view,
                                                    extent, output_extent, target_extent, oot_motion.current,
                                                    oot_motion.previous, mesh, depth.ImageHandle(),
-                                                   render_trace_frame, jitter);
+                                                   render_trace_frame, jitter, dlaa_4k_native);
         if (!recorded) {
             return fail("temporal upscaler declined the frame");
         }
@@ -3469,6 +3501,26 @@ bool RasterizerVulkan::TryOcarinaUpscale(const ComputePipeline& pipeline, bool r
             oot_active_logged = true;
             oot_logged_render = extent;
             oot_logged_output = output_extent;
+            if (dlaa_4k) {
+                const auto dlss_settings = Settings::GetNvidiaDlssRuntimeSettings();
+                LOG_INFO(Render_Vulkan,
+                         "Ocarina 4K DLAA: active from frame {}: input {}x{} -> output {}x{} "
+                         "(guest target {}x{}), pass {:016x}, mode {}, quality setting {}, preset "
+                         "{}, jitter mode {}, this frame's offset ({:.3f}, {:.3f}), texture LOD "
+                         "bias {:.2f}{}",
+                         render_trace_frame, extent.width, extent.height, output_extent.width,
+                         output_extent.height, target_extent.width, target_extent.height,
+                         pipeline.ShaderHash(),
+                         dlaa_4k_native ? "Native (DLAA)" : "upscale (not DLAA: scene < target)",
+                         Settings::CanonicalizeEnum(dlss_settings.quality),
+                         Settings::CanonicalizeEnum(dlss_settings.preset),
+                         VideoCommon::OcarinaDlssJitterMode(), jitter[0], jitter[1],
+                         VideoCommon::OcarinaFsrLodBias(*oot_backend),
+                         extent.width == 3840 && extent.height == 2160
+                             ? ""
+                             : "; the scene isn't 3840x2160 (Handheld mode or the 4K patch "
+                               "didn't take)");
+            }
             LOG_INFO(Render_Vulkan,
                      "Ocarina temporal ({}): active from frame {}: render {}x{} -> output {}x{} "
                      "(guest target {}x{}{}), jitter mode {}, this frame's offset ({:.3f}, {:.3f})",

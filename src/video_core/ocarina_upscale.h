@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <string_view>
 
+#include "common/oot_4k.h"
 #include "common/settings_enums.h"
 
 namespace VideoCommon {
@@ -88,6 +89,11 @@ inline bool OcarinaDlaaAt1440p() {
 inline float OcarinaFsrLodBias(OcarinaUpscaleBackend backend) {
     if (backend == OcarinaUpscaleBackend::Fsr) {
         return -1.58f;
+    }
+    // 4K DLAA (EDEN_NX2_OOT_4K=1): render and output are both 3840x2160, so log2(1) = 0.
+    static const bool dlaa_4k = Common::Oot4kDlaaRequested();
+    if (backend == OcarinaUpscaleBackend::Dlss && dlaa_4k) {
+        return 0.0f;
     }
     return backend == OcarinaUpscaleBackend::Dlss && OcarinaDlssJitterMode() != 0 ? -0.58f : 0.0f;
 }

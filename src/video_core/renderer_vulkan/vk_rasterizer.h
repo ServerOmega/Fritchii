@@ -328,6 +328,7 @@ private:
     VkExtent2D oot_logged_render{};    ///< sizes of the last "active" log line
     VkExtent2D oot_logged_output{};
     bool oot_native_mapped_logged{};   ///< logged that Native (DLAA) upscales to 4K instead
+    bool oot_4k_shape_logged{};        ///< 4K DLAA: logged a scene/target size that isn't 1:1
     bool oot_bypass_logged{};          ///< logged why "No sharpening" applies this boot
     bool oot_bypass_off_logged{};      ///< logged that "No sharpening" is off this boot
     std::optional<u64> oot_dlss_frame;

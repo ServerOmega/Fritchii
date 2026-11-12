@@ -31,6 +31,9 @@ struct NvidiaDlssInputs {
     /// Native NGX only: the DLSS preset letter ('J' to 'M'), or 0 to leave it to NVIDIA.
     /// EDEN_NX2_DLSS_PRESET overrides it.
     char preset = 'K';
+    /// Evaluate as Native (DLAA) whatever Graphics > DLSS quality says. Ocarina's 4K experiment
+    /// (EDEN_NX2_OOT_4K=1) sets it: its scene is already 3840x2160, so there is nothing to upscale.
+    bool force_dlaa = false;
 };
 
 } // namespace Vulkan

@@ -168,7 +168,13 @@ bool NvidiaDlssUpscaler::Upscale(const Inputs& frame) {
     if (failed) return false;
     Inputs in = frame;
     // Graphics > DLSS quality and preset apply while playing (Settings::RefreshNvidiaDlssRuntimeSettings).
-    const auto settings = Settings::GetNvidiaDlssRuntimeSettings();
+    auto settings = Settings::GetNvidiaDlssRuntimeSettings();
+    // Ocarina's 4K experiment hands DLSS a 3840x2160 scene for a 3840x2160 output: whatever
+    // Graphics > DLSS quality says, the only mode that fits is Native (DLAA).
+    const auto asked_quality = settings.quality;
+    if (in.force_dlaa) {
+        settings.quality = Settings::NvidiaDlssQuality::Native;
+    }
     in.preset = PresetLetter(settings.preset);
     const bool extent_changed = !output_image || in.render_size.width != render_extent.width ||
         in.render_size.height != render_extent.height || in.upscale_size.width != upscale_extent.width ||
@@ -195,7 +201,8 @@ bool NvidiaDlssUpscaler::Upscale(const Inputs& frame) {
     const NgxFrameGen::Capture* const frame_gen_capture =
         frame_gen ? frame_gen->PrepareCapture(frame_gen_inputs) : nullptr;
     scheduler.RequestOutsideRenderPassOperationContext();
-    scheduler.Record([this, in, options_changed, requested = settings.quality, frame_gen_capture,
+    scheduler.Record([this, in, options_changed, requested = settings.quality, asked_quality,
+                      frame_gen_capture,
                       preset_setting = settings.preset, index = frame_index++,
                       output_image_handle = *output_image,
                       output_view_handle = *output_view](vk::CommandBuffer cmdbuf) {
@@ -324,6 +331,21 @@ bool NvidiaDlssUpscaler::Upscale(const Inputs& frame) {
             }
             clear_output();
             return;
+        }
+        if (in.force_dlaa && (index == 0 || options_changed)) {
+            LOG_INFO(Render_Vulkan,
+                     "Ocarina 4K DLAA: NGX evaluated input {}x{} -> output {}x{}, mode {} (Graphics > "
+                     "DLSS quality {} maps to DLAA here), preset {}, jitter ({:.3f}, {:.3f}), frame "
+                     "generation {}",
+                     in.render_size.width, in.render_size.height, in.upscale_size.width,
+                     in.upscale_size.height, Settings::CanonicalizeEnum(evaluated_mode),
+                     Settings::CanonicalizeEnum(asked_quality),
+                     in.preset ? std::string(1, in.preset) : std::string("default"),
+                     in.jitter[0], in.jitter[1],
+                     frame_gen_capture ? "capturing this frame (DLSS-G on)"
+                     : Ngx::FrameGenRequested() > 1
+                         ? "requested but not capturing (see the DLSS-G lines)"
+                         : "off");
         }
         if (index == 0 || options_changed) {
             LOG_INFO(Render_Vulkan, "NVIDIA DLSS (native NGX): evaluation succeeded ({:#x}), input {}x{} -> output {}x{}, mode {} (asked for {}), preset {}, {}, depth {}, jitter ({:.3f}, {:.3f})",

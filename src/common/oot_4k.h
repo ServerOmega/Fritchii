@@ -27,6 +27,16 @@ inline bool Oot4kScaleRequested() {
     return !(value != nullptr && std::string_view{value} == "0");
 }
 
+/// With 4K on, NVIDIA DLSS runs as DLAA on the 3840x2160 scene unless EDEN_NX2_OOT_4K_DLAA=0,
+/// which keeps the game's own anti-aliasing pass (the a23a737 behaviour).
+inline bool Oot4kDlaaRequested() {
+    if (!Oot4kRequested()) {
+        return false;
+    }
+    const char* const value = std::getenv("EDEN_NX2_OOT_4K_DLAA");
+    return !(value != nullptr && std::string_view{value} == "0");
+}
+
 /// Extra application-pool bytes reserved when 4K is on: 400 MiB, a little above NX2navi's
 /// rounded 1.25 * 312320 KiB (391168 KiB / 382 MiB) so a slightly larger shipped heap still fits.
 inline u64 Oot4kAppPoolExtraBytes() {

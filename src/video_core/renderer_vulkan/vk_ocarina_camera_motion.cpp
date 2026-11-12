@@ -7,6 +7,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <optional>
+#include <string_view>
 
 #include "common/logging.h"
 #include "common/oot_4k.h"
@@ -922,7 +923,7 @@ bool OcarinaUpscaler::Record(VkImageView color, VkImageView depth, VkImageView t
                             VkExtent2D output_extent, VkExtent2D target_extent,
                             const Matrix& current, const Matrix& previous,
                             const OcarinaActorMesh& mesh, VkImage depth_image, u64 frame,
-                            std::array<f32, 2> jitter) {
+                            std::array<f32, 2> jitter, bool force_dlaa) {
     auto& state = *impl;
     if (state.last_frame == frame || state.Failed()) {
         return false;
@@ -1010,6 +1011,7 @@ bool OcarinaUpscaler::Record(VkImageView color, VkImageView depth, VkImageView t
             .reset = reset,
             .depth_inverted = false,
             .hdr = false,
+            .force_dlaa = force_dlaa,
         })) {
         state.scheduler.InvalidateState();
         return false;
@@ -1104,17 +1106,6 @@ bool OcarinaUpscaler::Record(VkImageView color, VkImageView depth, VkImageView t
     return true;
 }
 VideoCommon::OcarinaUpscaleBackend ResolveOcarinaUpscaler(const Device& device) {
-    if (Common::Oot4kRequested()) {
-        static const bool logged = [] {
-            LOG_INFO(Render_Vulkan,
-                     "Ocarina 4K: NVIDIA DLSS and AMD FSR are not supported with this experiment "
-                     "yet; the game's own pass will run. Unset EDEN_NX2_OOT_4K to use them, or "
-                     "turn them off");
-            return true;
-        }();
-        (void)logged;
-        return VideoCommon::OcarinaUpscaleBackend::Native;
-    }
     const char* value = std::getenv("EDEN_NX2_DLSS_REPLACEMENT");
     bool dlss_available = false;
 #ifdef EGLANTINE_NVIDIA_DLSS
@@ -1123,6 +1114,44 @@ VideoCommon::OcarinaUpscaleBackend ResolveOcarinaUpscaler(const Device& device) 
     const auto backend = VideoCommon::SelectOcarinaUpscaler(
         Settings::values.oot_anti_aliasing.GetValue(), Settings::values.nvidia_dlss.GetValue(),
         dlss_available, value ? value : "");
+    if (Common::Oot4kRequested()) {
+        // Native 4K (EDEN_NX2_OOT_4K=1): the scene is already 3840x2160, so NVIDIA DLSS runs as
+        // DLAA at that size. AMD FSR at 4K isn't wired up; the game's own pass runs instead.
+        const bool dlaa = backend == VideoCommon::OcarinaUpscaleBackend::Dlss &&
+                          Common::Oot4kDlaaRequested();
+        static const bool logged = [&] {
+            const bool fsr_chosen =
+                VideoCommon::OcarinaFsrChosen(Settings::values.oot_anti_aliasing.GetValue()) ||
+                (value && std::string_view{value} == "fsr");
+            if (dlaa) {
+                LOG_INFO(Render_Vulkan,
+                         "Ocarina 4K DLAA: on. NVIDIA DLSS runs as Native (DLAA) on the 3840x2160 "
+                         "scene whatever Graphics > DLSS quality says (now {}); preset {}, jitter "
+                         "mode {}{}, texture LOD bias 0.00. EDEN_NX2_OOT_4K_DLAA=0 turns it off",
+                         Settings::CanonicalizeEnum(Settings::GetNvidiaDlssRuntimeSettings().quality),
+                         Settings::CanonicalizeEnum(Settings::GetNvidiaDlssRuntimeSettings().preset),
+                         VideoCommon::OcarinaDlssJitterMode(),
+                         VideoCommon::OcarinaDlssJitterOverridden() ? " (EDEN_NX2_DLSS_JITTER)" : "");
+            } else {
+                const char* reason =
+                    backend == VideoCommon::OcarinaUpscaleBackend::Dlss
+                        ? "EDEN_NX2_OOT_4K_DLAA=0"
+                    : fsr_chosen ? "AMD FSR is chosen and isn't supported with 4K yet"
+                    : value && std::string_view{value} == "native" ? "EDEN_NX2_DLSS_REPLACEMENT=native"
+                    : !Settings::values.nvidia_dlss.GetValue()
+                        ? "NVIDIA DLSS is off in Graphics settings"
+                        : "the NVIDIA DLSS runtime isn't available";
+                LOG_INFO(Render_Vulkan,
+                         "Ocarina 4K DLAA: off ({}); the game's own anti-aliasing pass runs at "
+                         "3840x2160",
+                         reason);
+            }
+            return true;
+        }();
+        (void)logged;
+        return dlaa ? VideoCommon::OcarinaUpscaleBackend::Dlss
+                    : VideoCommon::OcarinaUpscaleBackend::Native;
+    }
     if (backend == VideoCommon::OcarinaUpscaleBackend::Fsr && !Fsr3Upscaler::IsSupported(device)) {
         return VideoCommon::OcarinaUpscaleBackend::Native;
     }

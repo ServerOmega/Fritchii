@@ -258,7 +258,10 @@ bool NvidiaDlssUpscaler::Upscale(const Inputs& in) {
                                 in.render_size.height != render_extent.height ||
                                 in.upscale_size.width != upscale_extent.width ||
                                 in.upscale_size.height != upscale_extent.height;
-    const auto settings = Settings::GetNvidiaDlssRuntimeSettings();
+    auto settings = Settings::GetNvidiaDlssRuntimeSettings();
+    if (in.force_dlaa) {
+        settings.quality = Settings::NvidiaDlssQuality::Native; // Ocarina 4K: DLAA only
+    }
     const bool options_changed = extent_changed || in.hdr != hdr_input ||
                                  quality_mode != settings.quality ||
                                  model_preset != settings.preset;
