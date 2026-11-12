@@ -265,12 +265,13 @@ void FrameGen::Process(const Device& device, Frame* frame, VkFormat format,
     }
 }
 
-size_t FrameGen::WantedGenerations(size_t capacity) {
+size_t FrameGen::WantedGenerations(size_t capacity,
+                                   std::chrono::steady_clock::duration blocked) {
     if (unavailable) {
         plan = {};
         return 0;
     }
-    plan = pacer.Plan(capacity);
+    plan = pacer.Plan(capacity, blocked);
     return plan.generations;
 }
 

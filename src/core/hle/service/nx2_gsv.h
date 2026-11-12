@@ -1808,6 +1808,9 @@ public:
         for (auto* event : m_events) {
             m_context.CloseEvent(event);
         }
+        // The interval belonged to this session's presents: frame generation must not plan
+        // against it once the session is gone (Lichii #1224).
+        VideoCommon::Nx2Perf::g_guest_frame_interval_ns.store(0, std::memory_order_relaxed);
     }
 
 private:

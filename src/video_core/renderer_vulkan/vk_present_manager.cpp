@@ -200,6 +200,7 @@ Frame* PresentManager::GetRenderFrame() {
     // The renderer waits for the present thread (tools/nx2/critical_path.py's table).
     Common::Nx2Timeline::Span timeline_span{"present: wait for free frame"};
     // Wait for free presentation frames
+    const auto waiting = std::chrono::steady_clock::now();
     std::unique_lock lock{free_mutex};
     free_cv.wait(lock, [this] { return !free_queue.empty(); });
 
@@ -209,6 +210,8 @@ Frame* PresentManager::GetRenderFrame() {
 
     // Wait for the presentation to be finished so all frame resources are free
     frame->present_done.Wait();
+    blocked_time.fetch_add((std::chrono::steady_clock::now() - waiting).count(),
+                           std::memory_order_relaxed);
     frame->present_done.Reset();
     frame->dlssg_slot = 0;
     frame->dlssg_count = 0;

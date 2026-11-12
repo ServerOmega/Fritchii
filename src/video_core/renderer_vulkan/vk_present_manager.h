@@ -68,6 +68,13 @@ public:
     /// Returns the last used presentation frame
     Frame* GetRenderFrame();
 
+    /// The time GetRenderFrame calls waited for a frame since the last call of this (the
+    /// present thread holding the renderer back).
+    [[nodiscard]] std::chrono::steady_clock::duration TakeBlockedTime() {
+        return std::chrono::steady_clock::duration{
+            blocked_time.exchange(0, std::memory_order_relaxed)};
+    }
+
     /// Pushes a frame for presentation
     void Present(Frame* frame);
 
@@ -163,6 +170,10 @@ private:
     std::condition_variable shown_cv;
     std::vector<ShownReport> shown_reports;
     std::jthread present_wait_thread;
+
+    /// See TakeBlockedTime. Atomic: a composite can also run from a syncpoint action on
+    /// another thread (GPU::RequestComposite).
+    std::atomic<std::chrono::steady_clock::rep> blocked_time{};
 
     // DLSS Frame Generation pacing (present thread only).
     std::chrono::steady_clock::time_point dlssg_group_start{};

@@ -32,6 +32,7 @@
 #include "frontend_common/firmware_manager.h"
 #include "video_core/gpu.h"
 #include "video_core/nx2.h"
+#include "video_core/nx2_perf.h"
 
 namespace Service::Nvidia {
 
@@ -136,6 +137,7 @@ Module::Module(Core::System& system)
     Tegra::Nx2ClearGpuWrittenPages();
     Devices::g_nx2_driver = false;
     Tegra::g_nx2_ampere = false;
+    VideoCommon::Nx2Perf::g_guest_frame_interval_ns = 0;
     Core::g_nx2_present_count = 0;
     nx2_stub_builder = [this, &system](DeviceFD fd, const std::string& name) {
         auto device = std::make_shared<Devices::nx2_stub_device>(system, name);
