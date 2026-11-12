@@ -282,7 +282,17 @@ void FixedPipelineState::RefreshBlending(Tegra::Engines::Maxwell3D& maxwell3d) {
     const Maxwell& regs = maxwell3d.regs;
     maxwell3d.dirty.flags[Dirty::Blending] = false;
     for (size_t index = 0; index < attachments.size(); ++index) {
-        attachments[index] = BlendingFor(regs, index);
+        // In place, not through BlendingFor: GCC's strict aliasing loses the colour mask when
+        // the BitField union is built in a local (black blended draws on Linux).
+        auto& attachment = attachments[index];
+        attachment.Refresh(regs, index);
+        if (color_write_enable_dynamic && attachment.mask_r == 0 && attachment.mask_g == 0 &&
+            attachment.mask_b == 0 && attachment.mask_a == 0) {
+            attachment.mask_r.Assign(1);
+            attachment.mask_g.Assign(1);
+            attachment.mask_b.Assign(1);
+            attachment.mask_a.Assign(1);
+        }
     }
 }
 
@@ -480,7 +490,12 @@ void FixedPipelineState::CanonicalizeNative(u32 generic_read_mask) noexcept {
         const size_t used = UsedColorTargets(color_formats);
         for (size_t index = 0; index < Maxwell::NumRenderTargets; ++index) {
             auto& attachment = attachments[index];
-            attachment.raw = index < used ? CanonicalAttachmentRaw(attachment) : 0;
+            // In place, as in RefreshBlending.
+            if (index >= used) {
+                attachment.raw = 0;
+            } else if (!attachment.enable) {
+                attachment.raw &= 0xF; // the colour write mask
+            }
         }
     }
     // Outside the hashed bytes but given to the driver: depth bounds are dynamic state, and the
