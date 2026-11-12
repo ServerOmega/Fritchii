@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "common/adpf.h"
+#include "common/linux/crash_handler.h"
 #include "common/error.h"
 #include "common/event_wait.h"
 #include "common/logging.h"
@@ -863,6 +864,7 @@ void SetNativeThreadNice(u64 native_id, int nice_value) {
 }
 
 void SetCurrentThreadName(const char* name) {
+    Common::CrashHandler::PrepareThread();
     Nx2SampleProfile::OnThreadNamed(name);
     Nx2Hitch::RegisterThread(name);
 #if defined(__linux__) && !defined(__ANDROID__)

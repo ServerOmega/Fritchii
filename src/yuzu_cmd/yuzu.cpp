@@ -33,6 +33,7 @@
 
 #include "common/fs/fs_util.h"
 #include "common/fs/path_util.h"
+#include "common/linux/crash_handler.h"
 #include "common/logging.h"
 #include "common/scm_rev.h"
 #include "common/settings.h"
@@ -595,9 +596,11 @@ extern "C" SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv) {
     SdlState* state = new SdlState();
     *appstate = state;
 
+    Common::CrashHandler::Install();
     Common::Log::Initialize();
     Common::Log::SetColorConsoleBackendEnabled(true);
     Common::Log::Start();
+    Common::CrashHandler::StartTestFromEnvironment("start");
 
     if (argc > 1 && std::string_view{argv[1]} == "--build-warm") {
         return BuildWarm(state->system, argc, argv) ? SDL_APP_SUCCESS : SDL_APP_FAILURE;

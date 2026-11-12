@@ -146,6 +146,10 @@ void Stop();
 /// usual log file was held by another process, so the session logs to a fallback file.
 std::filesystem::path FilePath(bool* primary_locked = nullptr);
 
+/// For the crash handler: flushes the log file's buffer if its lock is free (ftrylockfile, so a
+/// thread that crashed while writing cannot deadlock it) and returns its descriptor, or -1.
+int CrashFlush() noexcept;
+
 /// The global filter will prevent any messages from even being processed if they are filtered.
 void SetGlobalFilter(const Filter& filter);
 void SetColorConsoleBackendEnabled(bool enabled);

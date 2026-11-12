@@ -51,6 +51,8 @@ add_library(
     nx2_hitch.h
     nx2_sampler.cpp
     nx2_sampler.h
+    linux/crash_handler.cpp
+    linux/crash_handler.h
     nx2_gpu_write_listener.h
     dynamic_library.cpp
     dynamic_library.h

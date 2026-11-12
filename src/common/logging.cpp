@@ -4,8 +4,12 @@
 // SPDX-FileCopyrightText: 2014 Citra Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <ctime>
+#include <filesystem>
+#include <vector>
 #include <climits>
 #include <cstdlib>
 #include <deque>
@@ -250,6 +254,10 @@ struct FileBackend final : public Backend {
         old_filename += ".old.txt";
         // Existence checks are done within the functions themselves.
         // We don't particularly care if these succeed or not.
+        // <log>.old.txt stays the previous session (Export Log reads it); the one before moves to
+        // log/old/<name>-<when it ended>.txt, keeping the last KeptOldLogs sessions there, so a
+        // crash two launches back is still on disk.
+        ArchiveOldLog(old_filename);
         void(FS::RemoveFile(old_filename));
         void(FS::RenameFile(filename, old_filename));
         file.emplace(filename, FS::FileAccessMode::Write, FS::FileType::TextFile);
@@ -267,6 +275,77 @@ struct FileBackend final : public Backend {
         }
     }
     ~FileBackend() noexcept override = default;
+
+    static constexpr std::size_t KeptOldLogs = 10;
+
+    static void ArchiveOldLog(const std::filesystem::path& old_filename) noexcept {
+        try {
+            std::error_code ec;
+            if (!std::filesystem::is_regular_file(old_filename, ec)) {
+                return;
+            }
+            const auto folder = old_filename.parent_path() / "old";
+            std::filesystem::create_directories(folder, ec);
+            const auto written = std::filesystem::last_write_time(old_filename, ec);
+            std::time_t when = std::time(nullptr);
+            if (!ec) {
+                when = std::chrono::system_clock::to_time_t(
+                    std::chrono::clock_cast<std::chrono::system_clock>(written));
+            }
+            std::tm local{};
+#ifdef _WIN32
+            localtime_s(&local, &when);
+#else
+            localtime_r(&when, &local);
+#endif
+            char stamp[32];
+            std::strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", &local);
+            // "eden_log.txt.old.txt" -> "eden_log-20261112-041500.txt"
+            std::string stem = old_filename.filename().string();
+            if (const auto dot = stem.find('.'); dot != std::string::npos) {
+                stem.resize(dot);
+            }
+            auto target = folder / fmt::format("{}-{}.txt", stem, stamp);
+            for (int n = 2; std::filesystem::exists(target, ec) && n < 100; ++n) {
+                target = folder / fmt::format("{}-{}-{}.txt", stem, stamp, n);
+            }
+            std::filesystem::rename(old_filename, target, ec);
+
+            std::vector<std::filesystem::path> archived;
+            for (const auto& item : std::filesystem::directory_iterator(folder, ec)) {
+                const auto name = item.path().filename().string();
+                if (item.is_regular_file(ec) && name.starts_with(stem + "-") && name.ends_with(".txt")) {
+                    archived.push_back(item.path());
+                }
+            }
+            // Names sort by time (yyyymmdd-hhmmss); the oldest go first.
+            std::sort(archived.begin(), archived.end());
+            for (std::size_t i = 0; i + KeptOldLogs < archived.size(); ++i) {
+                std::filesystem::remove(archived[i], ec);
+            }
+        } catch (...) {
+            // Rotation is best effort; logging still starts.
+        }
+    }
+
+    int CrashFlush() noexcept {
+#ifdef _WIN32
+        return -1;
+#else
+        if (!file || !file->IsOpen()) {
+            return -1;
+        }
+        std::FILE* const stream = file->RawHandle();
+        if (stream == nullptr) {
+            return -1;
+        }
+        if (ftrylockfile(stream) == 0) {
+            std::fflush(stream); // the stream lock is recursive: we hold it
+            funlockfile(stream);
+        }
+        return fileno(stream);
+#endif
+    }
 
     std::filesystem::path path;
     bool primary_locked = false;
@@ -498,6 +577,15 @@ std::filesystem::path FilePath(bool* primary_locked) {
     }
 #endif
     return {};
+}
+
+int CrashFlush() noexcept {
+#ifndef __OPENORBIS__
+    if (logging_instance && logging_instance->file_backend) {
+        return logging_instance->file_backend->CrashFlush();
+    }
+#endif
+    return -1;
 }
 
 void SetGlobalFilter(const Filter& filter) {

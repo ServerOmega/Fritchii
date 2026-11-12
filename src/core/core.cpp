@@ -9,6 +9,7 @@
 
 #include "game_settings.h"
 #include "common/cpu_features.h"
+#include "common/linux/crash_handler.h"
 #include "audio_core/audio_core.h"
 #include "common/fs/fs.h"
 #include "common/logging.h"
@@ -570,6 +571,7 @@ struct System::Impl {
         }
         debug_service = Nx2Debug::MaybeStartService(system, name, params.program_id);
         Nx2Sampler::StartFromEnvironment();
+        Common::CrashHandler::StartTestFromEnvironment("boot");
         return SystemResultStatus::Success;
     }
 

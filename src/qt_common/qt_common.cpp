@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "common/linux/crash_handler.h"
 #include "common/literals.h"
 
 #include "common/memory_detect.h"
@@ -239,6 +240,7 @@ void Init(QWidget* root) {
 
     Common::Log::Initialize();
     Common::Log::Start();
+    Common::CrashHandler::StartTestFromEnvironment("start");
 
     Network::Init();
 

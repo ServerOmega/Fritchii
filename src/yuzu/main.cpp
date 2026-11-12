@@ -13,6 +13,7 @@
 #include <exception>
 
 #include "common/fs/fs_paths.h"
+#include "common/linux/crash_handler.h"
 #include "common/fs/path_util.h"
 #include "common/scm_rev.h"
 #include "startup_checks.h"
@@ -314,6 +315,8 @@ int main(int argc, char* argv[]) {
 #ifdef YUZU_CRASH_DUMPS
     Breakpad::InstallCrashHandler();
 #endif
+    // Before any JIT: Dynarmic and NCE keep this as their previous handler and chain to it.
+    Common::CrashHandler::Install();
 
     // Init settings params
     QCoreApplication::setOrganizationName(QStringLiteral("eden"));

@@ -449,6 +449,11 @@ public:
      */
     [[nodiscard]] s64 Tell() const;
 
+    /// The C stream, for the crash handler's lock-free flush only.
+    [[nodiscard]] std::FILE* RawHandle() const noexcept {
+        return file;
+    }
+
 private:
     std::filesystem::path file_path;
     FileAccessMode file_access_mode{};
