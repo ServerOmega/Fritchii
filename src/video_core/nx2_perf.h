@@ -7,6 +7,7 @@
 #include <array>
 #include <atomic>
 #include <cstdlib>
+#include <mutex>
 #include <string>
 #include <string_view>
 
@@ -158,5 +159,55 @@ inline void NoteFrameTime(long long interval_ns) {
 /// frontends set it where the OS has no compositor timing query for the host frame pacer
 /// (Linux); EDEN_NX2_HOST_REFRESH_HZ overrides it.
 inline std::atomic<double> g_display_refresh_hz{0.0};
+
+/// Bumped by PublishDisplay whenever the window's display or its mode changes, so the host
+/// pacer queries again at its next frame instead of up to 2 s later.
+inline std::atomic<unsigned> g_display_generation{0};
+
+inline std::mutex g_display_name_mutex;
+inline std::string g_display_name; ///< "DP-1, wayland", for the log
+
+/// The frontends call this when the render window's display or its refresh rate changes.
+/// Returns true when anything changed (the caller logs it).
+inline bool PublishDisplay(double hz, std::string name) {
+    {
+        std::scoped_lock lock{g_display_name_mutex};
+        if (g_display_name == name &&
+            g_display_refresh_hz.load(std::memory_order_relaxed) == hz) {
+            return false;
+        }
+        g_display_name = std::move(name);
+        g_display_refresh_hz.store(hz, std::memory_order_relaxed);
+    }
+    g_display_generation.fetch_add(1, std::memory_order_release);
+    return true;
+}
+
+[[nodiscard]] inline std::string DisplayName() {
+    std::scoped_lock lock{g_display_name_mutex};
+    return g_display_name;
+}
+
+/// EDEN_NX2_HOST_REFRESH_HZ, 0 when unset.
+[[nodiscard]] inline double ForcedRefreshHz() {
+    static const double forced = [] {
+        const char* value = std::getenv("EDEN_NX2_HOST_REFRESH_HZ");
+        return value != nullptr ? std::atof(value) : 0.0;
+    }();
+    return forced;
+}
+
+/// The display's refresh period for consumers that must not fall back to 60 Hz while the host
+/// pacer has not measured it (it only runs with present wait and without frame generation):
+/// the pacer's value, else EDEN_NX2_HOST_REFRESH_HZ, else the frontend's report; 0 if unknown.
+[[nodiscard]] inline long long DisplayRefreshNsOrReported() {
+    if (const long long measured = g_display_refresh_ns.load(std::memory_order_relaxed);
+        measured > 0) {
+        return measured;
+    }
+    const double forced = ForcedRefreshHz();
+    const double hz = forced > 0.0 ? forced : g_display_refresh_hz.load(std::memory_order_relaxed);
+    return hz > 20.0 && hz < 1000.0 ? static_cast<long long>(1e9 / hz) : 0;
+}
 
 } // namespace VideoCommon::Nx2Perf

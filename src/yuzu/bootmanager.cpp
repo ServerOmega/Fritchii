@@ -196,10 +196,33 @@ void GRenderWindow::OnFramebufferSizeChanged() {
     const u32 width = this->width() * pixel_ratio;
     const u32 height = this->height() * pixel_ratio;
     UpdateCurrentFramebufferLayout(width, height);
-    if (const QScreen* const current = screen()) {
-        VideoCommon::Nx2Perf::g_display_refresh_hz.store(current->refreshRate(),
-                                                         std::memory_order_relaxed);
+    PublishDisplayRefresh();
+}
+
+void GRenderWindow::PublishDisplayRefresh() {
+    const QScreen* const current = screen();
+    if (current == nullptr) {
+        return;
     }
+    const std::string name = current->name().toStdString();
+    const std::string platform = QGuiApplication::platformName().toStdString();
+    const double hz = current->refreshRate();
+    if (VideoCommon::Nx2Perf::PublishDisplay(hz, name + ", " + platform)) {
+        LOG_INFO(Frontend, "Display: {} at {:.3f} Hz (platform {}){}", name, hz, platform,
+                 hz > 20.0 && hz < 1000.0 ? "" : ", rate not usable for host pacing");
+    }
+}
+
+void GRenderWindow::OnScreenChanged(QScreen* new_screen) {
+    if (refresh_rate_connection) {
+        disconnect(refresh_rate_connection);
+    }
+    if (new_screen != nullptr) {
+        // A mode change on the same display (144 -> 60 Hz in the desktop's settings).
+        refresh_rate_connection = connect(new_screen, &QScreen::refreshRateChanged, this,
+                                          &GRenderWindow::PublishDisplayRefresh);
+    }
+    OnFramebufferSizeChanged();
 }
 
 void GRenderWindow::BackupGeometry() {
@@ -953,6 +976,17 @@ void GRenderWindow::showEvent(QShowEvent* event) {
     // windowHandle() is not initialized until the Window is shown, so we connect it here.
     connect(windowHandle(), &QWindow::screenChanged, this, &GRenderWindow::OnFramebufferSizeChanged,
             Qt::UniqueConnection);
+    // The top-level window too (the main window, or this one in fullscreen/detached), which is
+    // the one a compositor moves between displays.
+    if (QWindow* const top = window() != nullptr ? window()->windowHandle() : nullptr) {
+        connect(top, &QWindow::screenChanged, this, &GRenderWindow::OnScreenChanged,
+                Qt::UniqueConnection);
+    }
+    if (QWindow* const own = windowHandle()) {
+        connect(own, &QWindow::screenChanged, this, &GRenderWindow::OnScreenChanged,
+                Qt::UniqueConnection);
+    }
+    OnScreenChanged(screen());
 }
 
 bool GRenderWindow::eventFilter(QObject* object, QEvent* event) {

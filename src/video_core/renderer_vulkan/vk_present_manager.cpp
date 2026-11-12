@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include <cmath>
 #include <thread>
 
 #include "common/logging.h"
@@ -15,6 +16,7 @@
 #ifdef HAS_LSFG
 #include "video_core/renderer_vulkan/present/lsfg_common.h"
 #endif
+#include "video_core/nx2_debug_control.h"
 #include "video_core/nx2_perf.h"
 #include "video_core/renderer_vulkan/vk_present_manager.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
@@ -380,6 +382,7 @@ void PresentManager::PresentThread(std::stop_token token) {
         }
         if (!token.stop_requested()) {
             bool held = false;
+            const bool generated_frame = present_queue.front()->dlssg_count != 0;
             if (Frame* const next = present_queue.front(); next->dlssg_count != 0) {
                 // Generated frames are paced by their group, not by the host pacer.
                 lock.unlock();
@@ -393,6 +396,8 @@ void PresentManager::PresentThread(std::stop_token token) {
                 held = PaceFrame(next, token);
                 lock.lock();
             }
+            // After PaceFrame: its Refresh has read the display rate for this frame.
+            LogPacerState(generated_frame);
             // Take the frame and notify anyone waiting
             Frame* frame = present_queue.front();
             present_queue.pop_front();
@@ -439,6 +444,65 @@ void PresentManager::PresentThread(std::stop_token token) {
             free_cv.notify_one();
         }
     }
+}
+
+void PresentManager::LogPacerState(bool generated_frame) {
+    const VkPresentModeKHR mode = swapchain.PresentMode();
+    const char* const mode_name = [mode] {
+        switch (mode) {
+        case VK_PRESENT_MODE_IMMEDIATE_KHR: return "Immediate";
+        case VK_PRESENT_MODE_MAILBOX_KHR: return "Mailbox";
+        case VK_PRESENT_MODE_FIFO_KHR: return "FIFO";
+        case VK_PRESENT_MODE_FIFO_RELAXED_KHR: return "FIFO Relaxed";
+        default: return "other";
+        }
+    }();
+    // The same gate as PaceFrame, in the order a player would look for it.
+    const char* reason = nullptr;
+    if (!present_wait_enabled) {
+        reason = "present wait unavailable (VK_KHR_present_wait or the present thread is off)";
+    } else if (VideoCore::Nx2Debug::SwitchValue(VideoCore::Nx2Debug::g_host_pace,
+                                                "EDEN_NX2_HOST_PACE", 1) == 0) {
+        reason = "EDEN_NX2_HOST_PACE=0";
+    } else if (mode == VK_PRESENT_MODE_IMMEDIATE_KHR) {
+        reason = "vsync Immediate (pacing needs FIFO, FIFO Relaxed or Mailbox)";
+    } else if (mode != VK_PRESENT_MODE_FIFO_KHR && mode != VK_PRESENT_MODE_MAILBOX_KHR &&
+               mode != VK_PRESENT_MODE_FIFO_RELAXED_KHR) {
+        reason = "unsupported present mode";
+    } else if (generated_frame) {
+        reason = "frame gen on (DLSS-G paces its own frames)";
+    } else if (Settings::FrameGenActive()) {
+        reason = "frame gen on";
+    } else if (!Settings::SpeedLimitEnabled()) {
+        reason = "speed limit off";
+    } else if (Settings::values.current_speed_mode.GetValue() == Settings::SpeedMode::Turbo) {
+        reason = "turbo";
+    } else if (pacer.Broken()) {
+        reason = "present wait does not signal on this driver (off for this session)";
+    } else if (!pacer.RefreshKnown()) {
+        reason = "display refresh not known yet";
+    }
+    // Formatted only when something changed: this runs for every frame, under the queue lock.
+    const long long period = reason == nullptr ? pacer.RefreshPeriod().count() : 0;
+    if (pacer_logged && reason == pacer_reason && mode == pacer_mode &&
+        std::abs(period - pacer_period) * 100 <= pacer_period &&
+        (reason != nullptr || pacer.RefreshDisplay() == pacer_display)) {
+        return;
+    }
+    pacer_logged = true;
+    pacer_reason = reason;
+    pacer_mode = mode;
+    pacer_period = period;
+    pacer_display = pacer.RefreshDisplay();
+    std::string state;
+    if (reason == nullptr) {
+        state = fmt::format("Host pacer: active (vsync {}, {:.3f} Hz, monitor {})", mode_name,
+                            1e9 / static_cast<double>(pacer.RefreshPeriod().count()),
+                            pacer.RefreshDisplay());
+    } else {
+        state = fmt::format("Host pacer: inactive, {} (vsync {})", reason, mode_name);
+    }
+    LOG_INFO(Render_Vulkan, "{}", state);
 }
 
 bool PresentManager::PaceFrame(Frame* frame, std::stop_token token) {

@@ -177,16 +177,17 @@ std::optional<DisplayRefresh> DisplayRefreshQuery::Query([[maybe_unused]] void* 
     }
 #else
     // No compositor timing query here: the frontend reports the window's display, or the user.
-    static const double forced = [] {
-        const char* value = std::getenv("EDEN_NX2_HOST_REFRESH_HZ");
-        return value != nullptr ? std::atof(value) : 0.0;
-    }();
+    const double forced = VideoCommon::Nx2Perf::ForcedRefreshHz();
     const double reported =
         VideoCommon::Nx2Perf::g_display_refresh_hz.load(std::memory_order_relaxed);
     const double hz = forced > 0.0 ? forced : reported;
     if (hz > 20.0 && hz < 1000.0) {
-        return DisplayRefresh{1e9 / hz,
-                              forced > 0.0 ? "EDEN_NX2_HOST_REFRESH_HZ" : "window display"};
+        if (forced > 0.0) {
+            return DisplayRefresh{1e9 / hz, "EDEN_NX2_HOST_REFRESH_HZ"};
+        }
+        const std::string name = VideoCommon::Nx2Perf::DisplayName();
+        return DisplayRefresh{1e9 / hz, name.empty() ? std::string{"window display"}
+                                                     : name + ", window display"};
     }
 #endif
     return std::nullopt;
@@ -204,7 +205,11 @@ void HostPacer::NoteQueued(Clock::time_point queued) {
 }
 
 void HostPacer::Refresh(Clock::time_point now, bool allowed, void* native_window) {
-    if (now >= next_refresh_query) {
+    // A display or mode change the frontend saw is read at once, not up to 2 s later.
+    const unsigned generation =
+        VideoCommon::Nx2Perf::g_display_generation.load(std::memory_order_acquire);
+    if (now >= next_refresh_query || generation != display_generation) {
+        display_generation = generation;
         next_refresh_query = now + std::chrono::seconds{2};
         if (const auto refresh = refresh_query.Query(native_window);
             refresh && refresh->period_ns > 2e6 && refresh->period_ns < 50e6) {

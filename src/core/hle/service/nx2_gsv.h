@@ -2031,8 +2031,10 @@ private:
         default:
             break;
         }
-        const long long display =
-            VideoCommon::Nx2Perf::g_display_refresh_ns.load(std::memory_order_relaxed);
+        // The pacer's measured period, else the rate the frontend reports for the window's
+        // display (on Linux the pacer is off with frame generation or vsync Immediate, and
+        // "Display" then fell back to 60 Hz).
+        const long long display = VideoCommon::Nx2Perf::DisplayRefreshNsOrReported();
         long long ns = hz != 0 ? 1'000'000'000LL / hz : display;
         if (display > 0) {
             ns = (std::max)(ns, display);

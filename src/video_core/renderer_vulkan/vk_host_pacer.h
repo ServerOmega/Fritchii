@@ -86,6 +86,20 @@ public:
     /// Time from `now` to the display's next refresh, or -1 while the refresh grid is unknown.
     [[nodiscard]] long long NsToNextRefresh(Clock::time_point now) const;
 
+    /// Whether the display's refresh is known (the pacer cannot run without it).
+    [[nodiscard]] bool RefreshKnown() const {
+        return refresh_known;
+    }
+
+    /// Present wait did not signal in time here: pacing is off for the session.
+    [[nodiscard]] bool Broken() const {
+        return broken;
+    }
+
+    [[nodiscard]] const std::string& RefreshDisplay() const {
+        return refresh_display;
+    }
+
     [[nodiscard]] std::chrono::nanoseconds RefreshPeriod() const {
         return std::chrono::nanoseconds{static_cast<s64>(refresh_ns)};
     }
@@ -104,6 +118,7 @@ private:
     u32 shown_wait_misses{}; ///< In a row
     double refresh_ns{1e9 / 60.0};
     bool refresh_known{};
+    unsigned display_generation{};
     Clock::time_point next_refresh_query{};
     DisplayRefreshQuery refresh_query;
     std::string refresh_display;

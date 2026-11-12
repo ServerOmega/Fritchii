@@ -28,6 +28,7 @@
 
 class MainWindow;
 class QCamera;
+class QScreen;
 class QImageCapture;
 class QMediaCaptureSession;
 class QCloseEvent;
@@ -150,6 +151,13 @@ private:
     void OnCameraCapture(int requestId, const QImage& img);
 
     void OnMinimalClientAreaChangeRequest(std::pair<u32, u32> minimal_size) override;
+
+    /// Reports the refresh rate, name and platform of the display showing this window to the
+    /// host frame pacer (Nx2Perf::PublishDisplay) and logs it when it changes.
+    void PublishDisplayRefresh();
+    /// The window moved to another display: follow that display's refresh rate changes.
+    void OnScreenChanged(QScreen* new_screen);
+    QMetaObject::Connection refresh_rate_connection;
 
     bool InitializeOpenGL();
     bool InitializeVulkan();

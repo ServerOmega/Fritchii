@@ -178,10 +178,23 @@ void EmuWindow_SDL3::OnResize() {
     int width, height;
     SDL_GetWindowSizeInPixels(render_window, &width, &height);
     UpdateCurrentFramebufferLayout(width, height);
-    if (const SDL_DisplayMode* mode =
-            SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(render_window))) {
-        VideoCommon::Nx2Perf::g_display_refresh_hz.store(mode->refresh_rate,
-                                                         std::memory_order_relaxed);
+    PublishDisplayRefresh();
+}
+
+void EmuWindow_SDL3::PublishDisplayRefresh() {
+    const SDL_DisplayID display = SDL_GetDisplayForWindow(render_window);
+    const SDL_DisplayMode* const mode = SDL_GetCurrentDisplayMode(display);
+    if (mode == nullptr) {
+        return;
+    }
+    const char* const display_name = SDL_GetDisplayName(display);
+    const char* const driver = SDL_GetCurrentVideoDriver();
+    const std::string name = display_name != nullptr ? display_name : "display";
+    const std::string platform = driver != nullptr ? driver : "unknown";
+    const double hz = mode->refresh_rate;
+    if (VideoCommon::Nx2Perf::PublishDisplay(hz, name + ", " + platform)) {
+        LOG_INFO(Frontend, "Display: {} at {:.3f} Hz (platform {}){}", name, hz, platform,
+                 hz > 20.0 && hz < 1000.0 ? "" : ", rate not usable for host pacing");
     }
 }
 
@@ -248,6 +261,12 @@ void EmuWindow_SDL3::OnEvent(SDL_Event& event) {
     case SDL_EVENT_WINDOW_EXPOSED:
         is_shown = true;
         return OnResize();
+    // Another display, or the display's mode changed: the host pacer follows its refresh.
+    case SDL_EVENT_WINDOW_DISPLAY_CHANGED:
+    case SDL_EVENT_DISPLAY_CURRENT_MODE_CHANGED:
+    case SDL_EVENT_DISPLAY_ADDED:
+    case SDL_EVENT_DISPLAY_REMOVED:
+        return PublishDisplayRefresh();
     case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
         LOG_INFO(Frontend, "Window close requested");
         is_open = false;

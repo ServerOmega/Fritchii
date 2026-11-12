@@ -104,6 +104,10 @@ private:
     /// frames. The first frame of a group goes out as soon as it is rendered.
     void PaceGeneratedFrame(Frame* frame, std::stop_token token);
 
+    /// Logs whether the host frame pacer runs and, if not, why, whenever that changes (the
+    /// first frame, a vsync change, frame generation, speed limit, turbo, the switch).
+    void LogPacerState(bool generated_frame);
+
     /// Waits for each present id until it is shown (VK_KHR_present_wait).
     void PresentWaitThread(std::stop_token token);
 
@@ -160,6 +164,12 @@ private:
     };
     bool present_wait_enabled{};
     HostPacer pacer;
+    // What LogPacerState last logged.
+    bool pacer_logged{};
+    const char* pacer_reason{};
+    VkPresentModeKHR pacer_mode{};
+    long long pacer_period{};
+    std::string pacer_display;
     u64 last_present_id{};
     u64 pacer_sequence{}; ///< With Reflex: consecutive ids for the host pacer (Reflex's skip)
     std::mutex present_wait_mutex; ///< Held while waiting on a swapchain; recreation takes it
