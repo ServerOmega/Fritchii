@@ -21,6 +21,7 @@
 #include <span>
 #include <fstream>
 #include <mutex>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -35,6 +36,7 @@
 #include "shader_recompiler/exception.h"
 #include "common/logging.h"
 #include "common/scope_exit.h"
+#include "common/oot_4k.h"
 #include "common/settings.h"
 #include "video_core/buffer_cache/buffer_cache.h"
 #include "video_core/gpu_logging/gpu_logging.h"
@@ -81,6 +83,27 @@
 #include "video_core/nx2_debug_control.h"
 #include "video_core/nx2_perf.h"
 #include "video_core/nx2_profile.h"
+
+
+namespace {
+constexpr u64 OcarinaOfTimeProgram = 0x0400486024DEC000ULL;
+
+void LogOcarina4kTarget(const char* role, u32 width, u32 height,
+                        VideoCore::Surface::PixelFormat format) {
+    if (!Common::Oot4kRequested() || Settings::GetCurrentProgramID() != OcarinaOfTimeProgram) {
+        return;
+    }
+    static std::mutex mutex;
+    static std::set<std::tuple<std::string, u32, u32, u32>> seen;
+    const auto key = std::tuple{std::string{role}, width, height, static_cast<u32>(format)};
+    std::scoped_lock lock{mutex};
+    if (!seen.insert(key).second) {
+        return;
+    }
+    LOG_INFO(Render_Vulkan, "Ocarina 4K: {} {}x{} format={}", role, width, height,
+             static_cast<u32>(format));
+}
+} // namespace
 
 namespace Vulkan {
 
@@ -893,6 +916,17 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func, bool is_in
     }
 
     TrackOcarinaCamera();
+    if (Common::Oot4kRequested()) {
+        const auto& targets = texture_cache.GetRenderTargets();
+        if (targets.color_buffer_ids[0]) {
+            const auto& color = texture_cache.GetImageView(targets.color_buffer_ids[0]);
+            LogOcarina4kTarget("3D color", color.size.width, color.size.height, color.format);
+        }
+        if (targets.depth_buffer_id) {
+            const auto& depth = texture_cache.GetImageView(targets.depth_buffer_id);
+            LogOcarina4kTarget("3D depth", depth.size.width, depth.size.height, depth.format);
+        }
+    }
     TrackOcarinaActor(pipeline->ShaderHashes()[1], is_indexed, is_indirect);
     TracePendingCpuWrites(false, pipeline->ShaderHashes());
     TraceRenderState(is_indexed, "configured", texture_cache.GetFramebuffer());
@@ -2153,6 +2187,19 @@ void RasterizerVulkan::DispatchCompute() {
                              can_replace || marking_effects ? &deferred_bind : nullptr)) {
         if (kepler_compute->IsNativeMode()) throw Shader::RuntimeError("Native compute resources unavailable");
         return;
+    }
+    if (Common::Oot4kRequested() && pipeline->CanReplaceOcarinaUpscale()) {
+        const auto sampled = pipeline->SampledImages();
+        const auto written = pipeline->WrittenImages();
+        if (!sampled.empty() && sampled[0].id) {
+            const auto& color = texture_cache.GetImageView(sampled[0].id);
+            LogOcarina4kTarget("upscale input", color.size.width, color.size.height, color.format);
+        }
+        if (!written.empty() && written[0]) {
+            const auto& target = texture_cache.GetImageView(written[0]);
+            LogOcarina4kTarget("upscale output", target.size.width, target.size.height,
+                               target.format);
+        }
     }
     if (VideoCommon::GpuSplit::RecordingDispatch()) {
         // EXP10: the buffer cache recorded the buffers the dispatch marks written; add its
@@ -3806,6 +3853,7 @@ std::optional<FramebufferTextureInfo> RasterizerVulkan::AccelerateDisplay(
     info.scaled_width = scaled ? resolution.ScaleUp(info.width) : info.width;
     info.scaled_height = scaled ? resolution.ScaleUp(info.height) : info.height;
     info.anti_aliased = oot_dlss_frame == render_trace_frame && !oot_live_dlss->EvaluationFailed();
+    LogOcarina4kTarget("present/output", info.width, info.height, image_view->format);
     if (oot_4k_scene_frame == render_trace_frame && info.image &&
         info.image == oot_4k_guest_present && info.image_view &&
         info.width == 2560 && info.height == 1440 && !scaled &&

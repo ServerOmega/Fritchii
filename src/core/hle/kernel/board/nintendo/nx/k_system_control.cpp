@@ -7,6 +7,8 @@
 #include <random>
 
 #include "common/literals.h"
+#include "common/logging.h"
+#include "common/oot_4k.h"
 #include "common/random.h"
 #include "common/settings.h"
 
@@ -94,7 +96,8 @@ size_t KSystemControl::Init::GetIntendedMemorySize() {
     case Smc::MemorySize_10GB:
         return 10_GiB;
     case Smc::MemorySize_12GB:
-        return 12_GiB + KSystemControl::Nx2GraphicsServerMemorySize;
+        return 12_GiB + KSystemControl::Nx2GraphicsServerMemorySize +
+               Common::Oot4kAppPoolExtraBytes();
     }
 }
 
@@ -137,8 +140,18 @@ std::size_t KSystemControl::Init::GetApplicationPoolSize() {
         }
     }();
 
-    // Return (possibly) adjusted size.
-    return base_pool_size;
+    const size_t extra = static_cast<size_t>(Common::Oot4kAppPoolExtraBytes());
+    if (extra != 0) {
+        static const bool logged = [extra] {
+            LOG_INFO(Kernel,
+                     "Ocarina 4K: application pool +{} MiB (EDEN_NX2_OOT_4K=1) so the grown "
+                     "HeapDef does not shrink other heaps",
+                     extra >> 20);
+            return true;
+        }();
+        (void)logged;
+    }
+    return base_pool_size + extra;
 }
 
 size_t KSystemControl::Init::GetAppletPoolSize() {

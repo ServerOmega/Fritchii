@@ -28,6 +28,8 @@
 #include "core/file_sys/content_archive.h"
 #include "core/file_sys/control_metadata.h"
 #include "core/file_sys/ips_layer.h"
+#include "common/oot_4k.h"
+#include "core/file_sys/oot_4k.h"
 #include "core/file_sys/patch_manager.h"
 #include "core/file_sys/registered_cache.h"
 #include "core/file_sys/romfs.h"
@@ -278,6 +280,53 @@ constexpr std::array POLL_BACKOFF_RECORDS{
     BuiltinPatchRecord{.module_offset = 0x1708C, .bytes = POLL_BACKOFF_RETURN, .checked = true, .original = 0},
 };
 
+// Native 4K experiment (EDEN_NX2_OOT_4K=1): the picture the game presents and the scene its
+// upscaler takes in, the same mov/movk sites as craftycorvid/oot-mod and NX2navi wide_out /
+// wide_scene. 3840 and 2160 (and 2880 / 1620) fit the existing 16-bit immediates. No cave.
+// Off by default. Keep Max Resolution on so 3D takes the "dynamic resolution disabled" path.
+constexpr std::array<u8, 4> MOV_X8_2560{0x08, 0x40, 0x81, 0xD2}; // mov x8, #2560
+constexpr std::array<u8, 4> MOV_X8_3840{0x08, 0xE0, 0x81, 0xD2}; // mov x8, #3840
+constexpr std::array<u8, 4> MOVK_X8_1440{0x08, 0xB4, 0xC0, 0xF2}; // movk x8, #1440, lsl #32
+constexpr std::array<u8, 4> MOVK_X8_2160{0x08, 0x0E, 0xC1, 0xF2}; // movk x8, #2160, lsl #32
+constexpr std::array<u8, 4> MOV_X8_1920{0x08, 0xF0, 0x80, 0xD2}; // mov x8, #1920
+constexpr std::array<u8, 4> MOV_X8_2880{0x08, 0x68, 0x81, 0xD2}; // mov x8, #2880
+constexpr std::array<u8, 4> MOVK_X8_1080{0x08, 0x87, 0xC0, 0xF2}; // movk x8, #1080, lsl #32
+constexpr std::array<u8, 4> MOVK_X8_1620{0x88, 0xCA, 0xC0, 0xF2}; // movk x8, #1620, lsl #32
+constexpr u32 MOV_X8_2560_W = 0xD2814008;
+constexpr u32 MOVK_X8_1440_W = 0xF2C0B408;
+constexpr u32 MOV_X8_1920_W = 0xD280F008;
+constexpr u32 MOVK_X8_1080_W = 0xF2C08708;
+constexpr std::array OOT_4K_SIZE_RECORDS{
+    BuiltinPatchRecord{.module_offset = 0x1202EE0, .bytes = MOV_X8_3840, .checked = true, .original = MOV_X8_2560_W},
+    BuiltinPatchRecord{.module_offset = 0x1202EE4, .bytes = MOVK_X8_2160, .checked = true, .original = MOVK_X8_1440_W},
+    BuiltinPatchRecord{.module_offset = 0x31F39F4, .bytes = MOV_X8_3840, .checked = true, .original = MOV_X8_2560_W},
+    BuiltinPatchRecord{.module_offset = 0x31F39F8, .bytes = MOVK_X8_2160, .checked = true, .original = MOVK_X8_1440_W},
+    BuiltinPatchRecord{.module_offset = 0x31F3A00, .bytes = MOV_X8_2880, .checked = true, .original = MOV_X8_1920_W},
+    BuiltinPatchRecord{.module_offset = 0x31F3A04, .bytes = MOVK_X8_1620, .checked = true, .original = MOVK_X8_1080_W},
+};
+
+// 1440-line scene-scale baseline (NX2navi res_fixed / widescreen.c): with a 2160-line picture,
+// a fixed scale of 1.0 at main+0x806420 still produced a 1440-line scene. 1.5 (2160/1440) makes
+// scale 1.0 mean the full 4K picture. The csel at +0x80641c is forced to state 0 so the caller
+// at main+0x31d3ee0 applies that scale every frame and it survives a scene reload.
+// Original encodings are from NX2navi recomp/patches-v111.txt for this build id. Skip with
+// EDEN_NX2_OOT_4K_SCALE=0 to A/B whether the scene is 3840x2160 or still 1440p.
+constexpr std::array<u8, 4> MOV_X8_XZR{0xE8, 0x03, 0x1F, 0xAA};      // mov x8, xzr (state 0)
+constexpr std::array<u8, 4> MOV_W9_1_5{0x09, 0xF8, 0xA7, 0x52};      // movz w9, #0x3FC0, lsl #16 = 1.5f
+constexpr u32 CSEL_X8_HI = 0x9A888128;                                // csel x8, x9, x8, hi
+constexpr u32 MOV_W9_1_0 = 0x52A7F009;                                // movz w9, #0x3F80, lsl #16 = 1.0f
+constexpr std::array OOT_4K_SCALE_RECORDS{
+    BuiltinPatchRecord{.module_offset = 0x80641C, .bytes = MOV_X8_XZR, .checked = true, .original = CSEL_X8_HI},
+    BuiltinPatchRecord{.module_offset = 0x806420, .bytes = MOV_W9_1_5, .checked = true, .original = MOV_W9_1_0},
+};
+
+bool Oot4kScaleSettingOn() {
+    return Common::Oot4kScaleRequested();
+}
+
+constexpr std::string_view OOT_4K_SIZE_NAME = "4K picture (built-in, EDEN_NX2_OOT_4K=1)";
+constexpr std::string_view OOT_4K_SCALE_NAME = "4K scene scale (built-in, EDEN_NX2_OOT_4K=1)";
+
 constexpr std::array BUILTIN_PATCHES{
     BuiltinPatch{
         .name = "Max Resolution (built-in)",
@@ -286,6 +335,23 @@ constexpr std::array BUILTIN_PATCHES{
         .build_id = "E0F3CCFAF50065AE4EA01EB5AEB13B1A45DA3348",
         .records = MAX_RESOLUTION_RECORDS,
         .disable_env = "EDEN_NX2_NO_MAX_RES",
+    },
+    BuiltinPatch{
+        .name = OOT_4K_SIZE_NAME,
+        .title_id = 0x0400486024DEC000,
+        .module = "main",
+        .build_id = "E0F3CCFAF50065AE4EA01EB5AEB13B1A45DA3348",
+        .records = OOT_4K_SIZE_RECORDS,
+        .enable_env = "EDEN_NX2_OOT_4K",
+    },
+    BuiltinPatch{
+        .name = OOT_4K_SCALE_NAME,
+        .title_id = 0x0400486024DEC000,
+        .module = "main",
+        .build_id = "E0F3CCFAF50065AE4EA01EB5AEB13B1A45DA3348",
+        .records = OOT_4K_SCALE_RECORDS,
+        .enable_env = "EDEN_NX2_OOT_4K",
+        .setting_enabled = &Oot4kScaleSettingOn,
     },
     // Before Dark's: it contains his routine and replaces it while applied. Off by default; only
     // listed in Add-Ons while the setting is on.
@@ -901,9 +967,24 @@ std::vector<u8> PatchManager::PatchNSO(const std::vector<u8>& nso, const std::st
         }
         LOG_INFO(Loader, "    - Applying built-in patch \"{}\" ({} records) to {}", patch.name,
                  patch.records.size(), name);
+        if (patch.name == OOT_4K_SIZE_NAME) {
+            LOG_INFO(Loader,
+                     "Ocarina 4K: picture size main+0x1202EE0 and main+0x31F39F4 set to 3840x2160; "
+                     "scene size main+0x31F3A00 set to 2880x1620 (3/4 of the picture)");
+        } else if (patch.name == OOT_4K_SCALE_NAME) {
+            LOG_INFO(Loader,
+                     "Ocarina 4K: scene scale at main+0x806420 set to 1.5 (2160/1440); state at "
+                     "main+0x80641C forced to 0 so the caller applies it every frame");
+        }
         if (!patch.replaces.empty()) {
             replaced.push_back(patch.replaces);
         }
+    }
+    if (title_id == 0x0400486024DEC000 && name == "main" && Common::Oot4kRequested() &&
+        !Common::Oot4kScaleRequested()) {
+        LOG_INFO(Loader,
+                 "Ocarina 4K: scene scale left at the game's 1.0 (EDEN_NX2_OOT_4K_SCALE=0); watch "
+                 "whether the 3D scene is 3840x2160 or still 1440p / 2880x1620");
     }
 
     if (out.size() < sizeof(Loader::NSOHeader)) {
@@ -1180,6 +1261,13 @@ VirtualFile PatchManager::PatchRomFS(const NCA* base_nca, VirtualFile base_romfs
     // LayeredFS
     if (apply_layeredfs) {
         ApplyLayeredFS(romfs, type);
+    }
+
+    // Native 4K experiment: grow the texture heaps in HeapDef after user LayeredFS, so a hand-
+    // installed HeapDef mod still wins if it already replaced the file.
+    if (title_id == 0x0400486024DEC000 &&
+        (type == ContentRecordType::Program || type == ContentRecordType::Data)) {
+        ApplyOot4kHeapDef(romfs);
     }
 
     return romfs;

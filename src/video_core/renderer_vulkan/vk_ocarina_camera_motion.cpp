@@ -9,6 +9,7 @@
 #include <optional>
 
 #include "common/logging.h"
+#include "common/oot_4k.h"
 #include "common/settings.h"
 #include "video_core/fsr.h"
 #include "video_core/renderer_vulkan/vk_compute_pass.h"
@@ -1103,6 +1104,17 @@ bool OcarinaUpscaler::Record(VkImageView color, VkImageView depth, VkImageView t
     return true;
 }
 VideoCommon::OcarinaUpscaleBackend ResolveOcarinaUpscaler(const Device& device) {
+    if (Common::Oot4kRequested()) {
+        static const bool logged = [] {
+            LOG_INFO(Render_Vulkan,
+                     "Ocarina 4K: NVIDIA DLSS and AMD FSR are not supported with this experiment "
+                     "yet; the game's own pass will run. Unset EDEN_NX2_OOT_4K to use them, or "
+                     "turn them off");
+            return true;
+        }();
+        (void)logged;
+        return VideoCommon::OcarinaUpscaleBackend::Native;
+    }
     const char* value = std::getenv("EDEN_NX2_DLSS_REPLACEMENT");
     bool dlss_available = false;
 #ifdef EGLANTINE_NVIDIA_DLSS

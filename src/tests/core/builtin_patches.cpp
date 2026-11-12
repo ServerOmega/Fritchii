@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -656,5 +657,126 @@ TEST_CASE("Dark's standalone Dynamic FPS mod is skipped and hidden for the built
         REQUIRE(WordAt(patched) == NopInstruction);
         REQUIRE(std::equal(DynamicCall.begin(), DynamicCall.end(), patched.begin() + CallOffset));
         REQUIRE(listed(context.Manager(), "Other mod"));
+    }
+}
+
+
+class ScopedEnv {
+public:
+    ScopedEnv(const char* name, const char* value) : name{name} {
+        if (const char* const previous = std::getenv(name)) {
+            old = previous;
+        }
+        Set(value);
+    }
+
+    ~ScopedEnv() {
+        Set(old ? old->c_str() : nullptr);
+    }
+
+    ScopedEnv(const ScopedEnv&) = delete;
+    ScopedEnv& operator=(const ScopedEnv&) = delete;
+
+private:
+    void Set(const char* value) const {
+#ifdef _WIN32
+        _putenv_s(name, value ? value : "");
+#else
+        if (value) {
+            setenv(name, value, 1);
+        } else {
+            unsetenv(name);
+        }
+#endif
+    }
+
+    const char* name;
+    std::optional<std::string> old;
+};
+
+u32 ModuleWord(const std::vector<u8>& nso, size_t module_offset) {
+    u32 word{};
+    std::memcpy(&word, nso.data() + sizeof(Loader::NSOHeader) + module_offset, sizeof(word));
+    return word;
+}
+
+void PlantModuleWord(std::vector<u8>& nso, size_t module_offset, u32 word) {
+    std::memcpy(nso.data() + sizeof(Loader::NSOHeader) + module_offset, &word, sizeof(word));
+}
+
+// Original picture / scene / scale words at the 4K sites, plus Max Resolution's tbz, in a main
+// large enough for main+0x31F3A04 (MakeOcarinaMain already reaches the high-refresh cave).
+std::vector<u8> MakeOcarina4kMain() {
+    auto nso = MakeOcarinaMain();
+    PlantModuleWord(nso, 0x805BD0, TbzInstruction);
+    PlantModuleWord(nso, 0x1202EE0, 0xD2814008); // mov x8, #2560
+    PlantModuleWord(nso, 0x1202EE4, 0xF2C0B408); // movk x8, #1440, lsl #32
+    PlantModuleWord(nso, 0x31F39F4, 0xD2814008);
+    PlantModuleWord(nso, 0x31F39F8, 0xF2C0B408);
+    PlantModuleWord(nso, 0x31F3A00, 0xD280F008); // mov x8, #1920
+    PlantModuleWord(nso, 0x31F3A04, 0xF2C08708); // movk x8, #1080, lsl #32
+    PlantModuleWord(nso, 0x80641C, 0x9A888128);  // csel x8, x9, x8, hi
+    PlantModuleWord(nso, 0x806420, 0x52A7F009);  // movz w9, #0x3F80, lsl #16 = 1.0f
+    return nso;
+}
+
+TEST_CASE("Built-in 4K picture and scene-scale patches are gated on EDEN_NX2_OOT_4K",
+          "[patch_manager]") {
+    PatchManagerTestContext context;
+    constexpr std::string_view SizeName = "4K picture (built-in, EDEN_NX2_OOT_4K=1)";
+    constexpr std::string_view ScaleName = "4K scene scale (built-in, EDEN_NX2_OOT_4K=1)";
+    const auto listed = [](const FileSys::PatchManager& manager, std::string_view name) {
+        const auto patches = manager.GetPatches();
+        return std::ranges::find(patches, name, &FileSys::Patch::name) != patches.end();
+    };
+
+    SECTION("Off by default") {
+        ScopedEnv fourk{"EDEN_NX2_OOT_4K", nullptr};
+        ScopedEnv scale{"EDEN_NX2_OOT_4K_SCALE", nullptr};
+        const auto patched = context.Manager().PatchNSO(MakeOcarina4kMain(), "main");
+        REQUIRE(ModuleWord(patched, 0x1202EE0) == 0xD2814008);
+        REQUIRE(ModuleWord(patched, 0x31F3A00) == 0xD280F008);
+        REQUIRE(ModuleWord(patched, 0x806420) == 0x52A7F009);
+        REQUIRE(ModuleWord(patched, 0x805BD0) == BranchInstruction);
+        REQUIRE_FALSE(listed(context.Manager(), SizeName));
+        REQUIRE_FALSE(listed(context.Manager(), ScaleName));
+    }
+
+    SECTION("EDEN_NX2_OOT_4K=1 applies picture, scene, and 1.5 scale") {
+        ScopedEnv fourk{"EDEN_NX2_OOT_4K", "1"};
+        ScopedEnv scale{"EDEN_NX2_OOT_4K_SCALE", nullptr};
+        const auto patched = context.Manager().PatchNSO(MakeOcarina4kMain(), "main");
+        REQUIRE(ModuleWord(patched, 0x1202EE0) == 0xD281E008); // mov x8, #3840
+        REQUIRE(ModuleWord(patched, 0x1202EE4) == 0xF2C10E08); // movk x8, #2160, lsl #32
+        REQUIRE(ModuleWord(patched, 0x31F39F4) == 0xD281E008);
+        REQUIRE(ModuleWord(patched, 0x31F39F8) == 0xF2C10E08);
+        REQUIRE(ModuleWord(patched, 0x31F3A00) == 0xD2816808); // mov x8, #2880
+        REQUIRE(ModuleWord(patched, 0x31F3A04) == 0xF2C0CA88); // movk x8, #1620, lsl #32
+        REQUIRE(ModuleWord(patched, 0x80641C) == 0xAA1F03E8);  // mov x8, xzr
+        REQUIRE(ModuleWord(patched, 0x806420) == 0x52A7F809);  // 1.5f
+        REQUIRE(ModuleWord(patched, 0x805BD0) == BranchInstruction);
+        REQUIRE(listed(context.Manager(), SizeName));
+        REQUIRE(listed(context.Manager(), ScaleName));
+    }
+
+    SECTION("EDEN_NX2_OOT_4K_SCALE=0 leaves the 1.0 baseline so the scene size can be compared") {
+        ScopedEnv fourk{"EDEN_NX2_OOT_4K", "1"};
+        ScopedEnv scale{"EDEN_NX2_OOT_4K_SCALE", "0"};
+        const auto patched = context.Manager().PatchNSO(MakeOcarina4kMain(), "main");
+        REQUIRE(ModuleWord(patched, 0x1202EE0) == 0xD281E008);
+        REQUIRE(ModuleWord(patched, 0x31F3A00) == 0xD2816808);
+        REQUIRE(ModuleWord(patched, 0x80641C) == 0x9A888128);
+        REQUIRE(ModuleWord(patched, 0x806420) == 0x52A7F009);
+        REQUIRE(listed(context.Manager(), SizeName));
+        REQUIRE_FALSE(listed(context.Manager(), ScaleName));
+    }
+
+    SECTION("A user mod at a picture site keeps its word and skips the 4K size built-in") {
+        ScopedEnv fourk{"EDEN_NX2_OOT_4K", "1"};
+        context.AddUserBytePatch(sizeof(Loader::NSOHeader) + 0x1202EE0, 0x5A);
+        const auto patched = context.Manager().PatchNSO(MakeOcarina4kMain(), "main");
+        REQUIRE(patched[sizeof(Loader::NSOHeader) + 0x1202EE0] == 0x5A);
+        REQUIRE(ModuleWord(patched, 0x31F3A00) == 0xD280F008);
+        REQUIRE(ModuleWord(patched, 0x806420) == 0x52A7F809);
     }
 }

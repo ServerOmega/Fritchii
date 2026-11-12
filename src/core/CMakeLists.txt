@@ -132,6 +132,8 @@ add_library(core STATIC
     file_sys/nca_metadata.h
     file_sys/partition_filesystem.cpp
     file_sys/partition_filesystem.h
+    file_sys/oot_4k.cpp
+    file_sys/oot_4k.h
     file_sys/patch_manager.cpp
     file_sys/patch_manager.h
     file_sys/program_metadata.cpp
