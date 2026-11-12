@@ -193,8 +193,9 @@ command. With `index: true`, the adapter runs that command itself. The adapter-o
 (`src/common/nx2_sampler.cpp`, also `EDEN_NX2_SAMPLE` at startup) on demand: it pauses the named
 threads (default `GPU,GPUBack`) about 1000 times a second for `seconds` (default 10) and returns
 the self, self-and-caller and inclusive counts per function. The report and its folded stacks go
-to `samples-<session>-<n>.txt` in the dump directory. Windows only; the threads run slower while
-sampled, so read fps from a run without it.
+to `samples-<session>-<n>.txt` in the dump directory. Windows and Linux (glibc; a `module+0x...`
+entry there is an offset `addr2line -e <module>` takes); the threads run slower while sampled, so
+read fps from a run without it.
 
 **`reject_shaders`** `{hashes?, reject?, timeout_s?}`. This is `EDEN_NX2_REJECT_HASH` at
 runtime: the same keys (native program key or shader hash) and the same effect. Pipeline
