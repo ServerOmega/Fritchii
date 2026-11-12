@@ -18,7 +18,8 @@ struct DisplayRefresh {
     std::string display; ///< Which display and source, for the log
 };
 
-/// The refresh period of the display a window is on (Windows; nullopt elsewhere or on failure).
+/// The refresh period of the display a window is on (Windows; elsewhere the rate the frontend
+/// reports or EDEN_NX2_HOST_REFRESH_HZ; nullopt when unknown or on failure).
 /// Keeps the display's rate between queries so the display configuration is only read again
 /// when the window moves to another display, its mode changes, or every 30 s.
 class DisplayRefreshQuery {

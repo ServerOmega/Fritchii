@@ -25,6 +25,7 @@
 #include "input_common/drivers/mouse.h"
 #include "input_common/drivers/touch_screen.h"
 #include "input_common/main.h"
+#include "video_core/nx2_perf.h"
 #include "yuzu_cmd/emu_window/emu_window_sdl3.h"
 #include "yuzu_cmd/yuzu_icon.h"
 
@@ -177,6 +178,11 @@ void EmuWindow_SDL3::OnResize() {
     int width, height;
     SDL_GetWindowSizeInPixels(render_window, &width, &height);
     UpdateCurrentFramebufferLayout(width, height);
+    if (const SDL_DisplayMode* mode =
+            SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(render_window))) {
+        VideoCommon::Nx2Perf::g_display_refresh_hz.store(mode->refresh_rate,
+                                                         std::memory_order_relaxed);
+    }
 }
 
 void EmuWindow_SDL3::ShowCursor(bool show_cursor) {

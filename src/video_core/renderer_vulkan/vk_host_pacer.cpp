@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 
 #include "common/logging.h"
 #include "video_core/nx2_debug_control.h"
@@ -173,6 +174,19 @@ std::optional<DisplayRefresh> DisplayRefreshQuery::Query([[maybe_unused]] void* 
     if (EnumDisplaySettingsW(nullptr, ENUM_CURRENT_SETTINGS, &mode) &&
         mode.dmDisplayFrequency > 1) {
         return DisplayRefresh{1e9 / mode.dmDisplayFrequency, "primary, display settings"};
+    }
+#else
+    // No compositor timing query here: the frontend reports the window's display, or the user.
+    static const double forced = [] {
+        const char* value = std::getenv("EDEN_NX2_HOST_REFRESH_HZ");
+        return value != nullptr ? std::atof(value) : 0.0;
+    }();
+    const double reported =
+        VideoCommon::Nx2Perf::g_display_refresh_hz.load(std::memory_order_relaxed);
+    const double hz = forced > 0.0 ? forced : reported;
+    if (hz > 20.0 && hz < 1000.0) {
+        return DisplayRefresh{1e9 / hz,
+                              forced > 0.0 ? "EDEN_NX2_HOST_REFRESH_HZ" : "window display"};
     }
 #endif
     return std::nullopt;
